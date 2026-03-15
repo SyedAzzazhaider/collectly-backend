@@ -12,6 +12,7 @@ const {
   validateLogin,
   validateRefreshToken,
   validateTwoFactor,
+  validateChangePassword,
 } = require('../validators/auth.validator');
 
 // -- Public routes -------------------------------------------------------------
@@ -20,7 +21,7 @@ router.post('/signup',  authLimiter, validateSignup, authController.signup);
 router.post('/login',   authLimiter, validateLogin,  authController.login);
 router.post('/refresh', validateRefreshToken,        authController.refreshTokens);
 
-// -- 2FA semi-public — called after login with preAuthToken --------------------
+// -- 2FA semi-public ï¿½ called after login with preAuthToken --------------------
 
 router.post('/2fa/verify', authLimiter, validateTwoFactor, authController.verify2FA);
 
@@ -28,9 +29,10 @@ router.post('/2fa/verify', authLimiter, validateTwoFactor, authController.verify
 
 router.post('/logout',     protect, authController.logout);
 router.post('/logout-all', protect, authController.logoutAll);
+router.patch('/password',protect,validateChangePassword,authController.changePassword);
 router.get('/me',          protect, authController.getMe);
 
-// -- 2FA protected — skip2FAGate so users mid-setup can still hit these --------
+// -- 2FA protected ï¿½ skip2FAGate so users mid-setup can still hit these --------
 
 router.post('/2fa/setup', (req, res, next) => {
   req.skip2FAGate = true;

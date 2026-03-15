@@ -2,6 +2,7 @@
 
 const invoiceService = require('../services/invoice.service');
 const AppError       = require('../../../shared/errors/AppError');
+const { getSignedDownloadUrl } = require('../../../shared/utils/s3.util');
 
 const sendSuccess = (res, statusCode, message, data = {}) =>
   res.status(statusCode).json({ status: 'success', message, data });
@@ -106,6 +107,64 @@ const recordPayment = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// ── POST /invoices/:id/attachments — upload PDF ───────────────────────────────
+
+const uploadAttachment = async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return next(new AppError('No file uploaded. Send a PDF file in the "file" field.', 400, 'NO_FILE'));
+    }
+
+    const invoice = await invoiceService.addAttachment(
+      req.user.id,
+      req.params.id,
+      req.file
+    );
+
+    sendSuccess(res, 200, 'Attachment uploaded successfully.', { invoice });
+  } catch (err) { next(err); }
+};
+
+// ── DELETE /invoices/:id/attachments/:index — remove attachment ───────────────
+
+const removeAttachment = async (req, res, next) => {
+  try {
+    const invoice = await invoiceService.removeAttachment(
+      req.user.id,
+      req.params.id,
+      req.params.index
+    );
+    sendSuccess(res, 200, 'Attachment removed successfully.', { invoice });
+  } catch (err) { next(err); }
+};
+
+// ── GET /invoices/:id/attachments/:index/download — signed URL ────────────────
+
+const getAttachmentDownloadUrl = async (req, res, next) => {
+  try {
+    const invoice = await invoiceService.getInvoiceById(req.user.id, req.params.id);
+
+    const idx = parseInt(req.params.index, 10);
+    if (isNaN(idx) || idx < 0 || idx >= invoice.attachments.length) {
+      return next(new AppError('Invalid attachment index.', 400, 'INVALID_ATTACHMENT_INDEX'));
+    }
+
+    const attachment = invoice.attachments[idx];
+    const signedUrl  = await getSignedDownloadUrl(attachment.url);
+
+    if (!signedUrl) {
+      return next(new AppError('Could not generate download URL.', 500, 'SIGNED_URL_ERROR'));
+    }
+
+    sendSuccess(res, 200, 'Download URL generated.', {
+      filename:   attachment.filename,
+      url:        signedUrl,
+      expiresIn:  '1 hour',
+    });
+  } catch (err) { next(err); }
+};
+
+
 module.exports = {
   createInvoice,
   getInvoices,
@@ -114,4 +173,7 @@ module.exports = {
   updateInvoice,
   deleteInvoice,
   recordPayment,
+  uploadAttachment,
+  removeAttachment,
+  getAttachmentDownloadUrl,
 };

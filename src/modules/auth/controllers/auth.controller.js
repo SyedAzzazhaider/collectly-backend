@@ -249,6 +249,18 @@ const oauthCallback = async (req, res, next) => {
   }
 };
 
+
+// ── Change Password ───────────────────────────────────────────────────────────
+
+const changePassword = async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    await authService.changePassword(req.user.id, currentPassword, newPassword);
+    sendSuccess(res, 200, 'Password changed successfully. Please log in again on all devices.');
+  } catch (err) { next(err); }
+};
+
+
 // ── Exports ───────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -262,4 +274,5 @@ module.exports = {
   verify2FA,
   disable2FA,
   oauthCallback,
+  changePassword,
 };

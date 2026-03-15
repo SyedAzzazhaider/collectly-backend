@@ -1,11 +1,11 @@
-'use strict';
+﻿'use strict';
 
 const Invoice  = require('../models/Invoice.model');
 const Customer = require('../models/Customer.model');
 const AppError = require('../../../shared/errors/AppError');
 const logger   = require('../../../shared/utils/logger');
 
-// ── Create invoice ────────────────────────────────────────────────────────────
+// â”€â”€ Create invoice â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const createInvoice = async (userId, data) => {
   const {
@@ -47,7 +47,7 @@ const createInvoice = async (userId, data) => {
   return invoice;
 };
 
-// ── Get all invoices (with filters) ──────────────────────────────────────────
+// â”€â”€ Get all invoices (with filters) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const getInvoices = async (userId, {
   page       = 1,
@@ -108,7 +108,7 @@ const getInvoices = async (userId, {
   };
 };
 
-// ── Get single invoice ────────────────────────────────────────────────────────
+// â”€â”€ Get single invoice â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const getInvoiceById = async (userId, invoiceId) => {
   const invoice = await Invoice.findOne({ _id: invoiceId, userId })
@@ -121,7 +121,7 @@ const getInvoiceById = async (userId, invoiceId) => {
   return invoice;
 };
 
-// ── Update invoice ────────────────────────────────────────────────────────────
+// â”€â”€ Update invoice â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const updateInvoice = async (userId, invoiceId, data) => {
   const invoice = await Invoice.findOne({ _id: invoiceId, userId });
@@ -166,7 +166,7 @@ const updateInvoice = async (userId, invoiceId, data) => {
   return invoice;
 };
 
-// ── Delete invoice ────────────────────────────────────────────────────────────
+// â”€â”€ Delete invoice â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const deleteInvoice = async (userId, invoiceId) => {
   const invoice = await Invoice.findOne({ _id: invoiceId, userId });
@@ -184,7 +184,7 @@ const deleteInvoice = async (userId, invoiceId) => {
   return { deleted: true, invoiceId };
 };
 
-// ── Record partial or full payment ────────────────────────────────────────────
+// â”€â”€ Record partial or full payment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const recordPayment = async (userId, invoiceId, paymentAmount) => {
   const invoice = await Invoice.findOne({ _id: invoiceId, userId });
@@ -218,7 +218,7 @@ const recordPayment = async (userId, invoiceId, paymentAmount) => {
   return invoice;
 };
 
-// ── Mark invoice as overdue (called by scheduler) ────────────────────────────
+// â”€â”€ Mark invoice as overdue (called by scheduler) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const markOverdueInvoices = async () => {
   const result = await Invoice.updateMany(
@@ -233,7 +233,7 @@ const markOverdueInvoices = async () => {
   return result.modifiedCount;
 };
 
-// ── Get overdue invoices (for agent dashboard) ────────────────────────────────
+// â”€â”€ Get overdue invoices (for agent dashboard) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const getOverdueInvoices = async (userId, { page = 1, limit = 20 } = {}) => {
   const query = { userId, status: 'overdue' };
@@ -253,6 +253,66 @@ const getOverdueInvoices = async (userId, { page = 1, limit = 20 } = {}) => {
   };
 };
 
+// â”€â”€ Add attachment to invoice â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+const addAttachment = async (userId, invoiceId, fileData) => {
+  const invoice = await Invoice.findOne({ _id: invoiceId, userId });
+  if (!invoice) throw new AppError('Invoice not found.', 404, 'INVOICE_NOT_FOUND');
+
+  if (invoice.status === 'cancelled') {
+    throw new AppError('Cannot add attachments to a cancelled invoice.', 400, 'INVOICE_CANCELLED');
+  }
+
+  if (invoice.attachments.length >= 10) {
+    throw new AppError('Maximum 10 attachments allowed per invoice.', 400, 'ATTACHMENT_LIMIT_REACHED');
+  }
+
+  // S3 upload stores URL in fileData.location (multer-s3)
+  // Memory fallback stores original buffer â€” URL will be empty
+  const attachmentUrl = fileData.key || '';
+  invoice.attachments.push({
+    filename:  fileData.originalname,
+    url:       attachmentUrl,
+    mimeType:  fileData.mimetype || 'application/pdf',
+    sizeBytes: fileData.size     || 0,
+  });
+
+  await invoice.save({ validateBeforeSave: false });
+  logger.info(`Attachment added to invoice ${invoiceId} by user ${userId}`);
+  return invoice;
+};
+
+// â”€â”€ Remove attachment from invoice â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+const removeAttachment = async (userId, invoiceId, attachmentIndex) => {
+  const { deleteFromS3 } = require('../../../shared/utils/s3.util');
+
+  const invoice = await Invoice.findOne({ _id: invoiceId, userId });
+  if (!invoice) throw new AppError('Invoice not found.', 404, 'INVOICE_NOT_FOUND');
+
+  const idx = parseInt(attachmentIndex, 10);
+  if (isNaN(idx) || idx < 0 || idx >= invoice.attachments.length) {
+    throw new AppError(
+      `Invalid attachment index. Invoice has ${invoice.attachments.length} attachment(s).`,
+      400,
+      'INVALID_ATTACHMENT_INDEX'
+    );
+  }
+
+  const attachment = invoice.attachments[idx];
+
+  // Delete from S3 if URL is an S3 key
+  if (attachment.url && attachment.url.startsWith('attachments/')) {
+    await deleteFromS3(attachment.url);
+  }
+
+  invoice.attachments.splice(idx, 1);
+  await invoice.save({ validateBeforeSave: false });
+
+  logger.info(`Attachment ${idx} removed from invoice ${invoiceId} by user ${userId}`);
+  return invoice;
+};
+
 module.exports = {
   createInvoice,
   getInvoices,
@@ -262,4 +322,6 @@ module.exports = {
   recordPayment,
   markOverdueInvoices,
   getOverdueInvoices,
+  addAttachment,
+  removeAttachment,
 };

@@ -50,6 +50,9 @@ app.get('/health', (req, res) =>
 app.use('/api/v1/auth',       authRoutes);
 app.use('/api/v1/auth/oauth', oauthRoutes);
 app.use('/api/v1/billing',    billingRoutes);
+app.use('/api/v1/conversations', require('./src/modules/conversations/routes/conversation.routes'));
+app.use('/api/v1/notifications', require('./src/modules/notifications/routes/notification.routes'));
+app.use('/api/v1/sequences',  require('./src/modules/sequences/routes/sequence.routes'));
 app.use('/api/v1/customers',  require('./src/modules/customers/routes/customer.routes'));
 app.use('/api/v1/invoices',   require('./src/modules/customers/routes/invoice.routes'));
 
@@ -60,4 +63,7 @@ app.use((req, res, next) => {
 app.use(errorHandler);
 
 module.exports = app;
+
+
+
 

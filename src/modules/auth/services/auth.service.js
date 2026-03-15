@@ -31,7 +31,7 @@ const attachRefreshCookie = (res, token) => {
     secure:   process.env.NODE_ENV === 'production',
     sameSite: 'strict',
     maxAge:   COOKIE_MAX_AGE_MS,
-    // No path restriction � cookie sent on all /api/v1/auth/* requests
+    // No path restriction � cookie sent on all /api/v1/auth/* requests
   });
 };
 
@@ -206,7 +206,7 @@ const refreshTokens = async (plainRefreshToken, res, meta = {}) => {
   }).select('+refreshTokens +isActive +lockedUntil +role +subscriptionPlan +twoFactorEnabled');
 
   if (!user) {
-    // Token not found at all � invalid or already rotated (possible reuse)
+    // Token not found at all � invalid or already rotated (possible reuse)
     clearRefreshCookie(res);
     throw new AppError(
       'Invalid or expired refresh token. Please log in again.',
@@ -224,7 +224,7 @@ const refreshTokens = async (plainRefreshToken, res, meta = {}) => {
   );
 
   if (sessionIndex === -1) {
-    // Token exists in DB but is expired � reuse attack detected
+    // Token exists in DB but is expired � reuse attack detected
     // Wipe ALL sessions to force re-authentication on every device
     logger.warn(`Reuse/expired token detected for ${user.email}. Wiping all sessions.`);
     user.refreshTokens = [];
@@ -237,11 +237,11 @@ const refreshTokens = async (plainRefreshToken, res, meta = {}) => {
     );
   }
 
-  // Valid session � remove it before issuing new pair (single-use enforcement)
+  // Valid session � remove it before issuing new pair (single-use enforcement)
   user.refreshTokens.splice(sessionIndex, 1);
   await user.save({ validateBeforeSave: false });
 
-  // Issue new pair � adds a new session atomically
+  // Issue new pair � adds a new session atomically
   const { accessToken } = await issueTokenPair(user, res, meta);
 
   logger.info(`Tokens rotated for user: ${user.email}`);
@@ -439,6 +439,44 @@ const getMe = async (userId) => {
   return user;
 };
 
+
+// ── Change Password ───────────────────────────────────────────────────────────
+
+const changePassword = async (userId, currentPassword, newPassword) => {
+  const user = await User.findById(userId).select('+password');
+  if (!user) throw new AppError('User not found.', 404);
+
+  // Verify current password
+  const isMatch = await user.comparePassword(currentPassword);
+  if (!isMatch) {
+    throw new AppError('Current password is incorrect.', 401, 'WRONG_CURRENT_PASSWORD');
+  }
+
+  // Prevent reuse of same password
+  if (currentPassword === newPassword) {
+    throw new AppError(
+      'New password must be different from your current password.',
+      400,
+      'SAME_PASSWORD'
+    );
+  }
+
+  // Update password — pre-save hook hashes automatically
+  user.password = newPassword;
+  await user.save();
+
+  // Invalidate ALL refresh sessions — force re-login on every device
+  const userDoc = await User.findById(userId).select('+refreshTokens');
+  if (userDoc) {
+    userDoc.refreshTokens = [];
+    await userDoc.save({ validateBeforeSave: false });
+  }
+
+  logger.info(`Password changed for user: ${userId} — all sessions invalidated`);
+};
+
+
+
 // -- Exports -------------------------------------------------------------------
 
 module.exports = {
@@ -452,5 +490,5 @@ module.exports = {
   disable2FA,
   oauthLogin,
   getMe,
+  changePassword,
 };
-
