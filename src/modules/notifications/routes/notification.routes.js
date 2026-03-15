@@ -46,6 +46,7 @@ router.post(
  */
 router.post(
   '/send-bulk',
+  express.json({ limit: '2mb' }),
   restrictTo('owner', 'admin', 'agent'),
   validateSendBulk,
   notificationController.sendBulk
