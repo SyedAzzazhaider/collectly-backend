@@ -9,8 +9,9 @@ const connectTestDB = async () => {
   if (mongoose.connection.readyState !== 0) {
     await mongoose.disconnect();
   }
+  const port = Math.floor(Math.random() * 10000) + 10000;
   mongoServer = await MongoMemoryServer.create({
-    instance: { port: Math.floor(Math.random() * (65535 - 27017) + 27017) },
+    instance: { port },
   });
   await mongoose.connect(mongoServer.getUri());
 };

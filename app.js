@@ -21,7 +21,11 @@ const billingRoutes = require('./src/modules/billing/routes/billing.routes');
 
 const app = express();
 
+// ── Security headers ──────────────────────────────────────────────────────────
+
 app.use(helmet());
+
+// ── CORS ──────────────────────────────────────────────────────────────────────
 
 app.use(cors({
   origin:         process.env.FRONTEND_URL || 'http://localhost:3000',
@@ -30,9 +34,13 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
+// ── Body parsing ──────────────────────────────────────────────────────────────
+
 app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(cookieParser());
+
+// ── HTTP request logging ──────────────────────────────────────────────────────
 
 if (process.env.NODE_ENV !== 'test') {
   app.use(morgan('combined', {
@@ -40,32 +48,62 @@ if (process.env.NODE_ENV !== 'test') {
   }));
 }
 
+// ── Global rate limiter ───────────────────────────────────────────────────────
+
 app.use(globalLimiter);
+
+// ── Passport (OAuth) ──────────────────────────────────────────────────────────
+
 app.use(passport.initialize());
+
+// ── Health check ──────────────────────────────────────────────────────────────
 
 app.get('/health', (req, res) =>
   res.status(200).json({ status: 'ok', service: 'collectly-api' })
 );
 
+// ── API routes ────────────────────────────────────────────────────────────────
+
+// Module A — Authentication
 app.use('/api/v1/auth',       authRoutes);
 app.use('/api/v1/auth/oauth', oauthRoutes);
-app.use('/api/v1/billing',    billingRoutes);
-app.use('/api/v1/conversations', require('./src/modules/conversations/routes/conversation.routes'));
+
+// Module B — Billing
+app.use('/api/v1/billing', billingRoutes);
+
+// Module C — Customers & Invoices
+app.use('/api/v1/customers', require('./src/modules/customers/routes/customer.routes'));
+app.use('/api/v1/invoices',  require('./src/modules/customers/routes/invoice.routes'));
+
+// Module D — Sequences
+app.use('/api/v1/sequences', require('./src/modules/sequences/routes/sequence.routes'));
+
+// Module E — Notifications & Delivery
 app.use('/api/v1/notifications', require('./src/modules/notifications/routes/notification.routes'));
-app.use('/api/v1/sequences',  require('./src/modules/sequences/routes/sequence.routes'));
-app.use('/api/v1/customers',  require('./src/modules/customers/routes/customer.routes'));
-app.use('/api/v1/invoices',   require('./src/modules/customers/routes/invoice.routes'));
+
+// Module F — Conversations & Negotiation
+app.use('/api/v1/conversations', require('./src/modules/conversations/routes/conversation.routes'));
+
+// Module G — Dashboards & Analytics
 app.use('/api/v1/dashboard', require('./src/modules/dashboard/routes/dashboard.routes'));
+
+// Module H — Search & Filters
+app.use('/api/v1/search', require('./src/modules/search/routes/search.routes'));
+
+// Module I — Platform Alerts
 app.use('/api/v1/alerts', require('./src/modules/alerts/routes/alert.routes'));
+
+// Module J — Security & Compliance
+app.use('/api/v1/compliance', require('./src/modules/compliance/routes/compliance.routes'));
+
+// ── 404 handler ───────────────────────────────────────────────────────────────
 
 app.use((req, res, next) => {
   next(new AppError(`Route ${req.originalUrl} not found.`, 404));
 });
 
+// ── Centralised error handler ─────────────────────────────────────────────────
+
 app.use(errorHandler);
 
 module.exports = app;
-
-
-
-
