@@ -7,6 +7,7 @@ const { signAccessToken,
 const { generateSecureToken,
         generateJti,
         generateRefreshTokenEntry,
+        generateExpiry,
         hashToken }          = require('../../../shared/utils/token.util');
 const { encrypt,
         decrypt,
@@ -477,6 +478,163 @@ const changePassword = async (userId, currentPassword, newPassword) => {
 
 
 
+// ── Forgot Password ───────────────────────────────────────────────────────────
+
+const forgotPassword = async (email) => {
+  // Always respond with the same message regardless of whether email exists.
+  // This prevents user enumeration attacks.
+  const SAFE_RESPONSE = {
+    message: 'If an account with that email exists, a password reset link has been sent.',
+  };
+
+  const user = await User.findOne({ email: email.toLowerCase() })
+    .select('+passwordResetToken +passwordResetExpires +isActive +oauthProvider');
+
+  if (!user || !user.isActive) return SAFE_RESPONSE;
+
+  // Block OAuth-only accounts — they have no password to reset
+  if (user.oauthProvider !== 'local' && !user.password) {
+    return SAFE_RESPONSE;
+  }
+
+  // Generate plain token, store only the hash
+  const plainToken  = generateSecureToken(32);
+  const hashedToken = hashToken(plainToken);
+
+  user.passwordResetToken   = hashedToken;
+  user.passwordResetExpires = generateExpiry(60); // 60-minute window
+  await user.save({ validateBeforeSave: false });
+
+  // Build reset URL for email body
+  const resetUrl = `${process.env.FRONTEND_URL}/auth/reset-password/${plainToken}`;
+
+  const emailService = require('../../notifications/services/email.service');
+  await emailService.sendEmail({
+    to:      user.email,
+    toName:  user.name,
+    subject: 'Reset your Collectly password',
+    body:    `Hi ${user.name},\n\nYou requested a password reset for your Collectly account.\n\nClick the link below to set a new password. This link expires in 60 minutes.\n\n${resetUrl}\n\nIf you did not request this, you can safely ignore this email. Your password will not change.`,
+  });
+
+  logger.info(`Password reset email dispatched: ${user.email}`);
+  return SAFE_RESPONSE;
+};
+
+// ── Reset Password ────────────────────────────────────────────────────────────
+
+const resetPassword = async (plainToken, newPassword, res) => {
+  if (!plainToken || typeof plainToken !== 'string' || plainToken.length < 10) {
+    throw new AppError('Invalid or missing reset token.', 400, 'INVALID_RESET_TOKEN');
+  }
+
+  const hashedToken = hashToken(plainToken);
+
+  // Find user with a matching, non-expired token
+  const user = await User.findOne({
+    passwordResetToken:   hashedToken,
+    passwordResetExpires: { $gt: new Date() },
+  }).select('+password +passwordResetToken +passwordResetExpires +refreshTokens +isActive');
+
+  if (!user) {
+    throw new AppError(
+      'Password reset token is invalid or has expired.',
+      400,
+      'INVALID_RESET_TOKEN'
+    );
+  }
+
+  // Prevent reuse of the same password
+  const isSame = await user.comparePassword(newPassword);
+  if (isSame) {
+    throw new AppError(
+      'New password must be different from your current password.',
+      400,
+      'SAME_PASSWORD'
+    );
+  }
+
+  // Apply new password — pre-save hook hashes automatically
+  user.password             = newPassword;
+  user.passwordResetToken   = undefined;
+  user.passwordResetExpires = undefined;
+  // Invalidate ALL existing refresh sessions — force re-login on every device
+  user.refreshTokens = [];
+  await user.save();
+
+  logger.info(`Password reset completed for user: ${user.email} — all sessions invalidated`);
+
+  // Issue a fresh token pair so the user is immediately logged in after reset
+  const { accessToken } = await issueTokenPair(user, res, {});
+  return { accessToken };
+};
+
+// ── Send Verification Email ───────────────────────────────────────────────────
+
+const sendVerificationEmail = async (userId) => {
+  const user = await User.findById(userId)
+    .select('+emailVerifyToken +emailVerifyExpires +isEmailVerified');
+
+  if (!user) throw new AppError('User not found.', 404);
+
+  if (user.isEmailVerified) {
+    throw new AppError('Email is already verified.', 400, 'EMAIL_ALREADY_VERIFIED');
+  }
+
+  const plainToken  = generateSecureToken(32);
+  const hashedToken = hashToken(plainToken);
+
+  user.emailVerifyToken   = hashedToken;
+  user.emailVerifyExpires = generateExpiry(24 * 60); // 24-hour window
+  await user.save({ validateBeforeSave: false });
+
+  const verifyUrl = `${process.env.FRONTEND_URL}/auth/verify-email/${plainToken}`;
+
+  const emailService = require('../../notifications/services/email.service');
+  await emailService.sendEmail({
+    to:      user.email,
+    toName:  user.name,
+    subject: 'Verify your Collectly email address',
+    body:    `Hi ${user.name},\n\nThank you for creating a Collectly account. Please verify your email address by clicking the link below.\n\nThis link expires in 24 hours.\n\n${verifyUrl}\n\nIf you did not create this account, you can safely ignore this email.`,
+  });
+
+  logger.info(`Verification email dispatched: ${user.email}`);
+};
+
+// ── Verify Email ──────────────────────────────────────────────────────────────
+
+const verifyEmail = async (plainToken) => {
+  if (!plainToken || typeof plainToken !== 'string' || plainToken.length < 10) {
+    throw new AppError('Invalid or missing verification token.', 400, 'INVALID_VERIFY_TOKEN');
+  }
+
+  const hashedToken = hashToken(plainToken);
+
+  const user = await User.findOne({
+    emailVerifyToken:   hashedToken,
+    emailVerifyExpires: { $gt: new Date() },
+  }).select('+emailVerifyToken +emailVerifyExpires +isEmailVerified');
+
+  if (!user) {
+    throw new AppError(
+      'Email verification token is invalid or has expired.',
+      400,
+      'INVALID_VERIFY_TOKEN'
+    );
+  }
+
+  user.isEmailVerified  = true;
+  user.emailVerifyToken   = undefined;
+  user.emailVerifyExpires = undefined;
+  await user.save({ validateBeforeSave: false });
+
+  logger.info(`Email verified for user: ${user.email}`);
+};
+
+
+
+
+
+
 // -- Exports -------------------------------------------------------------------
 
 module.exports = {
@@ -491,4 +649,8 @@ module.exports = {
   oauthLogin,
   getMe,
   changePassword,
+  forgotPassword,
+  resetPassword,
+  sendVerificationEmail,
+  verifyEmail,
 };

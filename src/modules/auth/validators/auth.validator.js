@@ -187,10 +187,67 @@ const validateChangePassword = (req, res, next) => {
   }
 };
 
+
+// ── Forgot Password ───────────────────────────────────────────────────────────
+
+const validateForgotPassword = (req, res, next) => {
+  try {
+    const { email } = req.body;
+    const errors    = {};
+
+    if (isMissing(email)) {
+      errors.email = 'Email is required';
+    } else if (!EMAIL_REGEX.test(sanitize(email).toLowerCase())) {
+      errors.email = 'Please provide a valid email address';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      return next(validationError('Forgot password validation failed', errors));
+    }
+
+    req.body.email = sanitize(email).toLowerCase();
+    next();
+  } catch {
+    next(new AppError('Validation error', 422));
+  }
+};
+
+// ── Reset Password ────────────────────────────────────────────────────────────
+
+const validateResetPassword = (req, res, next) => {
+  try {
+    const { newPassword, confirmPassword } = req.body;
+    const errors = {};
+
+    if (isMissing(newPassword)) {
+      errors.newPassword = 'New password is required';
+    } else if (!PASSWORD_REGEX.test(newPassword)) {
+      errors.newPassword =
+        'Password must be 8–72 characters and include uppercase, lowercase, number, and special character (@$!%*?&^#)';
+    }
+
+    if (isMissing(confirmPassword)) {
+      errors.confirmPassword = 'Password confirmation is required';
+    } else if (newPassword !== confirmPassword) {
+      errors.confirmPassword = 'Passwords do not match';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      return next(validationError('Reset password validation failed', errors));
+    }
+
+    next();
+  } catch {
+    next(new AppError('Validation error', 422));
+  }
+};
+
 module.exports = {
   validateSignup,
   validateLogin,
   validateRefreshToken,
   validateTwoFactor,
   validateChangePassword,
+  validateForgotPassword,
+  validateResetPassword,
 };

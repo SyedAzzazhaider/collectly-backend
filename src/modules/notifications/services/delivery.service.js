@@ -6,6 +6,7 @@ const emailService        = require('./email.service');
 const smsService          = require('./sms.service');
 const AppError            = require('../../../shared/errors/AppError');
 const logger              = require('../../../shared/utils/logger');
+const webhookService      = require('./webhook.service');
 
 // ── Calculate retry backoff ───────────────────────────────────────────────────
 // Document: Retry logic with exponential backoff
@@ -21,7 +22,7 @@ const calculateNextRetry = (attemptCount, baseMinutes = 5) => {
 // ── Dispatch to correct provider ──────────────────────────────────────────────
 
 const dispatchToProvider = async (notification) => {
-  const { channel, recipient, subject, body } = notification;
+  const { channel, recipient, subject, body, metadata } = notification;
 
   switch (channel) {
     case 'email':
@@ -45,8 +46,7 @@ const dispatchToProvider = async (notification) => {
       });
 
     case 'in-app':
-      // In-app notifications are stored in DB and delivered via API polling
-      // Module I will add WebSocket real-time delivery
+      // Stored in DB — delivered via API polling
       logger.info(`In-app notification queued: ${notification._id}`);
       return {
         success:           true,
@@ -56,19 +56,42 @@ const dispatchToProvider = async (notification) => {
         provider:          'in-app',
       };
 
+    case 'webhook':
+      return webhookService.sendWebhook({
+        webhookUrl: recipient.webhookUrl || metadata?.webhookUrl || null,
+        body,
+        metadata: {
+          notificationId: String(notification._id),
+          channel,
+          invoiceId:      notification.invoiceId  || null,
+          customerId:     notification.customerId || null,
+          type:           notification.type,
+          ...(metadata || {}),
+        },
+      });
+
     default:
       throw new AppError(`Unsupported channel: ${channel}`, 400, 'UNSUPPORTED_CHANNEL');
   }
 };
+
 
 // ── Send a single notification ────────────────────────────────────────────────
 // Document: Send notification, record attempt, handle retry
 
 const sendNotification = async (userId, data) => {
   const notification = await notificationService.createNotification(userId, data);
+
+  // If scheduledAt is in the future — hold as pending, do not deliver now
+  if (notification.scheduledAt && new Date(notification.scheduledAt) > new Date()) {
+    logger.info(
+      `Notification scheduled for future delivery: ${notification._id} at ${notification.scheduledAt}`
+    );
+    return notification;
+  }
+
   return executeDelivery(notification);
 };
-
 // ── Execute delivery on an existing notification record ───────────────────────
 
 const executeDelivery = async (notification) => {

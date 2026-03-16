@@ -1,5 +1,10 @@
-const logger = require('../utils/logger');
+'use strict';
+
+const logger  = require('../utils/logger');
 const AppError = require('./AppError');
+const { captureException } = require('../utils/sentry.util');
+
+// ── DB / JWT error translators ────────────────────────────────────────────────
 
 const handleCastErrorDB = (err) =>
   new AppError(`Invalid ${err.path}: ${err.value}`, 400);
@@ -20,19 +25,21 @@ const handleJWTError = () =>
 const handleJWTExpiredError = () =>
   new AppError('Your token has expired. Please log in again.', 401, 'TOKEN_EXPIRED');
 
+// ── Response senders ──────────────────────────────────────────────────────────
+
 const sendErrorDev = (err, res) => {
   res.status(err.statusCode).json({
-    status: err.status,
-    error: err,
+    status:  err.status,
+    error:   err,
     message: err.message,
-    stack: err.stack,
+    stack:   err.stack,
   });
 };
 
 const sendErrorProd = (err, res) => {
   if (err.isOperational) {
     res.status(err.statusCode).json({
-      status: err.status,
+      status:  err.status,
       message: err.message,
       ...(err.code && { code: err.code }),
     });
@@ -42,19 +49,35 @@ const sendErrorProd = (err, res) => {
   }
 };
 
+// ── Centralised error handler ─────────────────────────────────────────────────
+
 module.exports = (err, req, res, next) => {
   err.statusCode = err.statusCode || 500;
-  err.status = err.status || 'error';
+  err.status     = err.status     || 'error';
+
+  // Report unexpected (non-operational) errors to Sentry
+  if (!err.isOperational) {
+    captureException(err, {
+      userId: req.user?.id,
+      url:    req.originalUrl,
+      method: req.method,
+      extra: {
+        body:   req.body,
+        params: req.params,
+        query:  req.query,
+      },
+    });
+  }
 
   if (process.env.NODE_ENV === 'development') {
     sendErrorDev(err, res);
   } else {
-    let error = Object.assign(Object.create(Object.getPrototypeOf(err)), err);
+    let error   = Object.assign(Object.create(Object.getPrototypeOf(err)), err);
     error.message = err.message;
 
-    if (error.name === 'CastError') error = handleCastErrorDB(error);
-    if (error.code === 11000) error = handleDuplicateFieldsDB(error);
-    if (error.name === 'ValidationError') error = handleValidationErrorDB(error);
+    if (error.name === 'CastError')        error = handleCastErrorDB(error);
+    if (error.code === 11000)              error = handleDuplicateFieldsDB(error);
+    if (error.name === 'ValidationError')  error = handleValidationErrorDB(error);
     if (error.name === 'JsonWebTokenError') error = handleJWTError();
     if (error.name === 'TokenExpiredError') error = handleJWTExpiredError();
 

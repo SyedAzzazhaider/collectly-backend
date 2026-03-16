@@ -6,6 +6,7 @@ const Customer     = require('../../customers/models/Customer.model');
 const Invoice      = require('../../customers/models/Invoice.model');
 const AppError     = require('../../../shared/errors/AppError');
 const logger       = require('../../../shared/utils/logger');
+const alertService = require('../../alerts/services/alert.service');
 
 // ── Send a message ────────────────────────────────────────────────────────────
 // Document: Message inbox — outbound messages sent by agent
@@ -96,8 +97,13 @@ const recordInboundMessage = async (userId, data) => {
   });
 
   logger.info(`Inbound message recorded: ${message._id} customer=${customerId}`);
+
+  // Module I — fire-and-forget alert (never blocks message recording)
+  alertService.triggerCustomerReply(userId, { customer, message }).catch(() => {});
+
   return message;
 };
+
 
 // ── Get inbox (all messages for user) ────────────────────────────────────────
 // Document: Agent inbox — filterable by customer, invoice, direction, channel

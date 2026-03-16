@@ -6,6 +6,7 @@ const Customer   = require('../../customers/models/Customer.model');
 const AppError   = require('../../../shared/errors/AppError');
 const logger     = require('../../../shared/utils/logger');
 const schedulerService = require('./scheduler.service');
+const alertService = require('../../alerts/services/alert.service');
 
 // ── Trigger types from document ───────────────────────────────────────────────
 // Document: Immediate, Scheduled, Recurring
@@ -315,6 +316,7 @@ const buildDefaultSubject = (invoice, phaseType) => {
 // ── Process a single invoice reminder ─────────────────────────────────────────
 // Main dispatch function called by the scheduler
 
+
 const processInvoiceReminder = async (invoice) => {
   try {
     const sequence = await Sequence.findById(invoice.sequenceId);
@@ -356,6 +358,19 @@ const processInvoiceReminder = async (invoice) => {
         phase,
         'sent'
       );
+
+      // Module I — fire-and-forget alerts (never block reminder processing)
+      alertService.triggerReminderSent(invoice.userId, {
+        invoice,
+        customer: invoice.customerId,
+        phase,
+      }).catch(() => {});
+
+      alertService.triggerEscalationTriggered(invoice.userId, {
+        invoice,
+        customer: invoice.customerId,
+        phase,
+      }).catch(() => {});
     }
 
     return { processed: result.dispatched, phase: phase.phaseNumber, result };
@@ -364,6 +379,9 @@ const processInvoiceReminder = async (invoice) => {
     return { processed: false, reason: 'error', error: err.message };
   }
 };
+
+
+
 
 // ── Run the scheduled batch ───────────────────────────────────────────────────
 // Called periodically — processes all invoices due for reminders

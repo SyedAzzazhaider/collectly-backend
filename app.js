@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 require('dotenv').config();
 const express      = require('express');
@@ -55,6 +55,8 @@ app.use('/api/v1/notifications', require('./src/modules/notifications/routes/not
 app.use('/api/v1/sequences',  require('./src/modules/sequences/routes/sequence.routes'));
 app.use('/api/v1/customers',  require('./src/modules/customers/routes/customer.routes'));
 app.use('/api/v1/invoices',   require('./src/modules/customers/routes/invoice.routes'));
+app.use('/api/v1/dashboard', require('./src/modules/dashboard/routes/dashboard.routes'));
+app.use('/api/v1/alerts', require('./src/modules/alerts/routes/alert.routes'));
 
 app.use((req, res, next) => {
   next(new AppError(`Route ${req.originalUrl} not found.`, 404));

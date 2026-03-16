@@ -261,6 +261,48 @@ const changePassword = async (req, res, next) => {
 };
 
 
+
+// ── Forgot Password ───────────────────────────────────────────────────────────
+
+const forgotPassword = async (req, res, next) => {
+  try {
+    const result = await authService.forgotPassword(req.body.email);
+    sendSuccess(res, 200, result.message);
+  } catch (err) { next(err); }
+};
+
+// ── Reset Password ────────────────────────────────────────────────────────────
+
+const resetPassword = async (req, res, next) => {
+  try {
+    const { token }                   = req.params;
+    const { newPassword }             = req.body;
+    const result = await authService.resetPassword(token, newPassword, res);
+    sendSuccess(res, 200, 'Password reset successful. You are now logged in.', {
+      accessToken: result.accessToken,
+    });
+  } catch (err) { next(err); }
+};
+
+// ── Send Verification Email ───────────────────────────────────────────────────
+
+const sendVerificationEmail = async (req, res, next) => {
+  try {
+    await authService.sendVerificationEmail(req.user.id);
+    sendSuccess(res, 200, 'Verification email sent. Please check your inbox.');
+  } catch (err) { next(err); }
+};
+
+// ── Verify Email ──────────────────────────────────────────────────────────────
+
+const verifyEmail = async (req, res, next) => {
+  try {
+    await authService.verifyEmail(req.params.token);
+    sendSuccess(res, 200, 'Email verified successfully.');
+  } catch (err) { next(err); }
+};
+
+
 // ── Exports ───────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -275,4 +317,8 @@ module.exports = {
   disable2FA,
   oauthCallback,
   changePassword,
+  forgotPassword,
+  resetPassword,
+  sendVerificationEmail,
+  verifyEmail,
 };

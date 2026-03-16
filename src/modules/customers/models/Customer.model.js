@@ -8,11 +8,17 @@ const preferenceSchema = new mongoose.Schema(
   {
     channels: {
       type:    [String],
-      enum:    ['email', 'sms', 'whatsapp', 'in-app'],
+      enum:    ['email', 'sms', 'whatsapp', 'in-app', 'webhook'],
       default: ['email'],
     },
-    language: { type: String, default: 'en', maxlength: 10 },
+    language:     { type: String,  default: 'en', maxlength: 10 },
     doNotContact: { type: Boolean, default: false },
+    webhookUrl: {
+      type:      String,
+      default:   null,
+      maxlength: 500,
+      match:     [/^https?:\/\/.+/, 'webhookUrl must be a valid HTTP/HTTPS URL'],
+    },
   },
   { _id: false }
 );

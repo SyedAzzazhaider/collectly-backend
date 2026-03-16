@@ -495,3 +495,223 @@ describe('restrictTo — role-based access control', () => {
     expect(res.body.data.user.subscriptionPlan).toBe('starter');
   });
 });
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FORGOT PASSWORD
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('POST /api/v1/auth/forgot-password', () => {
+  it('should return 200 with safe message for existing email', async () => {
+    await request(app).post('/api/v1/auth/signup').send(validUser);
+    const res = await request(app)
+      .post('/api/v1/auth/forgot-password')
+      .send({ email: validUser.email });
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('success');
+  });
+
+  it('should return 200 with same message for non-existent email (enumeration protection)', async () => {
+    const res = await request(app)
+      .post('/api/v1/auth/forgot-password')
+      .send({ email: 'doesnotexist@test.dev' });
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('success');
+  });
+
+  it('should reject missing email with 422', async () => {
+    const res = await request(app)
+      .post('/api/v1/auth/forgot-password')
+      .send({});
+    expect(res.status).toBe(422);
+  });
+
+  it('should reject invalid email format with 422', async () => {
+    const res = await request(app)
+      .post('/api/v1/auth/forgot-password')
+      .send({ email: 'not-an-email' });
+    expect(res.status).toBe(422);
+  });
+
+  it('should store hashed reset token on user document', async () => {
+    await request(app).post('/api/v1/auth/signup').send(validUser);
+    await request(app)
+      .post('/api/v1/auth/forgot-password')
+      .send({ email: validUser.email });
+    const user = await User.findOne({ email: validUser.email })
+      .select('+passwordResetToken +passwordResetExpires');
+    expect(user.passwordResetToken).toBeDefined();
+    expect(user.passwordResetExpires).toBeDefined();
+    expect(new Date(user.passwordResetExpires).getTime()).toBeGreaterThan(Date.now());
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RESET PASSWORD
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('POST /api/v1/auth/reset-password/:token', () => {
+  const { generateSecureToken, hashToken, generateExpiry } = require('../../../shared/utils/token.util');
+
+  const setupResetToken = async () => {
+    await request(app).post('/api/v1/auth/signup').send(validUser);
+    const plainToken  = generateSecureToken(32);
+    const hashedToken = hashToken(plainToken);
+    await User.findOneAndUpdate(
+      { email: validUser.email },
+      {
+        passwordResetToken:   hashedToken,
+        passwordResetExpires: generateExpiry(60),
+      },
+      { new: true }
+    );
+    return plainToken;
+  };
+
+  it('should reset password with valid token and return access token', async () => {
+    const token = await setupResetToken();
+    const res = await request(app)
+      .post(`/api/v1/auth/reset-password/${token}`)
+      .send({ newPassword: 'NewSecure@456', confirmPassword: 'NewSecure@456' });
+    expect(res.status).toBe(200);
+    expect(res.body.data.accessToken).toBeDefined();
+  });
+
+  it('should clear reset token after successful reset', async () => {
+    const token = await setupResetToken();
+    await request(app)
+      .post(`/api/v1/auth/reset-password/${token}`)
+      .send({ newPassword: 'NewSecure@456', confirmPassword: 'NewSecure@456' });
+    const user = await User.findOne({ email: validUser.email })
+      .select('+passwordResetToken +passwordResetExpires');
+    expect(user.passwordResetToken).toBeUndefined();
+    expect(user.passwordResetExpires).toBeUndefined();
+  });
+
+  it('should reject expired or invalid token with 400', async () => {
+    const res = await request(app)
+      .post('/api/v1/auth/reset-password/invalidtoken123456789012345678901234567890')
+      .send({ newPassword: 'NewSecure@456', confirmPassword: 'NewSecure@456' });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INVALID_RESET_TOKEN');
+  });
+
+  it('should reject weak new password with 422', async () => {
+    const token = await setupResetToken();
+    const res = await request(app)
+      .post(`/api/v1/auth/reset-password/${token}`)
+      .send({ newPassword: 'weak', confirmPassword: 'weak' });
+    expect(res.status).toBe(422);
+  });
+
+  it('should reject mismatched passwords with 422', async () => {
+    const token = await setupResetToken();
+    const res = await request(app)
+      .post(`/api/v1/auth/reset-password/${token}`)
+      .send({ newPassword: 'NewSecure@456', confirmPassword: 'Different@789' });
+    expect(res.status).toBe(422);
+  });
+
+  it('should allow login with new password after reset', async () => {
+    const token = await setupResetToken();
+    await request(app)
+      .post(`/api/v1/auth/reset-password/${token}`)
+      .send({ newPassword: 'NewSecure@456', confirmPassword: 'NewSecure@456' });
+    const loginRes = await request(app)
+      .post('/api/v1/auth/login')
+      .send({ email: validUser.email, password: 'NewSecure@456' });
+    expect(loginRes.status).toBe(200);
+  });
+
+  it('should reject old password login after reset', async () => {
+    const token = await setupResetToken();
+    await request(app)
+      .post(`/api/v1/auth/reset-password/${token}`)
+      .send({ newPassword: 'NewSecure@456', confirmPassword: 'NewSecure@456' });
+    const loginRes = await request(app)
+      .post('/api/v1/auth/login')
+      .send({ email: validUser.email, password: validUser.password });
+    expect(loginRes.status).toBe(401);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EMAIL VERIFICATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Email verification flow', () => {
+  const { generateSecureToken, hashToken, generateExpiry } = require('../../../shared/utils/token.util');
+
+  const signupAndGetToken = async () => {
+    await request(app).post('/api/v1/auth/signup').send(validUser);
+    const res = await request(app)
+      .post('/api/v1/auth/login')
+      .send({ email: validUser.email, password: validUser.password });
+    return res.body.data.accessToken;
+  };
+
+  it('POST /resend-verification should return 200 for unverified user', async () => {
+    const token = await signupAndGetToken();
+    const res   = await request(app)
+      .post('/api/v1/auth/resend-verification')
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('success');
+  });
+
+  it('GET /verify-email/:token should verify email with valid token', async () => {
+    const accessToken = await signupAndGetToken();
+    const plainToken  = generateSecureToken(32);
+    const hashedToken = hashToken(plainToken);
+    await User.findOneAndUpdate(
+      { email: validUser.email },
+      {
+        emailVerifyToken:   hashedToken,
+        emailVerifyExpires: generateExpiry(24 * 60),
+      }
+    );
+    const res = await request(app)
+      .get(`/api/v1/auth/verify-email/${plainToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('success');
+  });
+
+  it('GET /verify-email/:token should set isEmailVerified to true', async () => {
+    await signupAndGetToken();
+    const plainToken  = generateSecureToken(32);
+    const hashedToken = hashToken(plainToken);
+    await User.findOneAndUpdate(
+      { email: validUser.email },
+      {
+        emailVerifyToken:   hashedToken,
+        emailVerifyExpires: generateExpiry(24 * 60),
+      }
+    );
+    await request(app).get(`/api/v1/auth/verify-email/${plainToken}`);
+    const user = await User.findOne({ email: validUser.email });
+    expect(user.isEmailVerified).toBe(true);
+  });
+
+  it('GET /verify-email/:token should reject invalid token with 400', async () => {
+    const res = await request(app)
+      .get('/api/v1/auth/verify-email/invalidtoken1234567890123456789012345');
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INVALID_VERIFY_TOKEN');
+  });
+
+  it('POST /resend-verification should return 400 if already verified', async () => {
+    const accessToken = await signupAndGetToken();
+    await User.findOneAndUpdate({ email: validUser.email }, { isEmailVerified: true });
+    const res = await request(app)
+      .post('/api/v1/auth/resend-verification')
+      .set('Authorization', `Bearer ${accessToken}`);
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('EMAIL_ALREADY_VERIFIED');
+  });
+
+  it('POST /resend-verification should require authentication', async () => {
+    const res = await request(app)
+      .post('/api/v1/auth/resend-verification');
+    expect(res.status).toBe(401);
+  });
+});

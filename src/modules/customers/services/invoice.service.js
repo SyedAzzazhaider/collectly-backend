@@ -4,6 +4,7 @@ const Invoice  = require('../models/Invoice.model');
 const Customer = require('../models/Customer.model');
 const AppError = require('../../../shared/errors/AppError');
 const logger   = require('../../../shared/utils/logger');
+const alertService = require('../../alerts/services/alert.service');
 
 // â”€â”€ Create invoice â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -215,6 +216,10 @@ const recordPayment = async (userId, invoiceId, paymentAmount) => {
   await invoice.save();
 
   logger.info(`Payment recorded: invoice=${invoiceId} amount=${paymentAmount} user=${userId}`);
+
+  // Module I — fire-and-forget alert (never blocks payment recording)
+  alertService.triggerPaymentReceived(userId, { invoice, amount: paymentAmount }).catch(() => {});
+
   return invoice;
 };
 

@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 
 // ── Valid values ──────────────────────────────────────────────────────────────
 
-const VALID_CHANNELS  = ['email', 'sms', 'whatsapp', 'in-app'];
+const VALID_CHANNELS = ['email', 'sms', 'whatsapp', 'in-app', 'webhook'];
 const VALID_STATUSES  = ['pending', 'sent', 'delivered', 'failed', 'cancelled'];
 const VALID_TYPES     = [
   'payment_reminder',
