@@ -14,7 +14,10 @@ const isValidObjId = (id) => /^[a-f\d]{24}$/i.test(String(id));
 
 const validateSendNotification = (req, res, next) => {
   try {
-    const { channel, type, recipient, subject, body, invoiceId, customerId } = req.body;
+    const {
+      channel, type, recipient, subject, body,
+      invoiceId, customerId, scheduledAt,
+    } = req.body;
     const errors = {};
 
     if (!channel || !VALID_CHANNELS.includes(channel)) {
@@ -64,6 +67,17 @@ const validateSendNotification = (req, res, next) => {
     if (customerId !== undefined && customerId !== null && !isValidObjId(customerId)) {
       errors.customerId = 'Customer ID must be a valid ID';
     }
+
+    // ── scheduledAt — must be a valid future date if provided ─────────────────
+    if (scheduledAt !== undefined && scheduledAt !== null) {
+      const d = new Date(scheduledAt);
+      if (isNaN(d.getTime())) {
+        errors.scheduledAt = 'scheduledAt must be a valid ISO 8601 date';
+      } else if (d <= new Date()) {
+        errors.scheduledAt = 'scheduledAt must be a future date';
+      }
+    }
+
     if (Object.keys(errors).length > 0) {
       return next(validationError('Notification validation failed', errors));
     }

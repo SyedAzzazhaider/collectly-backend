@@ -7,6 +7,7 @@ const smsService          = require('./sms.service');
 const AppError            = require('../../../shared/errors/AppError');
 const logger              = require('../../../shared/utils/logger');
 const webhookService      = require('./webhook.service');
+const complianceService = require('../../compliance/services/compliance.service');
 
 // ── Calculate retry backoff ───────────────────────────────────────────────────
 // Document: Retry logic with exponential backoff
@@ -90,8 +91,34 @@ const sendNotification = async (userId, data) => {
     return notification;
   }
 
+  // ── Compliance guard — check DNC and opt-in before dispatching ────────────
+  if (notification.customerId && notification.channel !== 'in-app') {
+    try {
+      const check = await complianceService.isDeliveryAllowed(
+        String(userId),
+        String(notification.customerId),
+        notification.channel
+      );
+      if (!check.allowed) {
+        logger.warn(
+          `Delivery blocked by compliance: notificationId=${notification._id} ` +
+          `channel=${notification.channel} reason=${check.reason}`
+        );
+        notification.status           = 'cancelled';
+        notification.lastErrorCode    = 'COMPLIANCE_BLOCKED';
+        notification.lastErrorMessage = `Blocked: ${check.reason}`;
+        await notification.save();
+        return notification;
+      }
+    } catch (err) {
+      // Non-fatal — log but do not block delivery if compliance service errors
+      logger.error(`Compliance check failed for notification ${notification._id}: ${err.message}`);
+    }
+  }
+
   return executeDelivery(notification);
 };
+
 // ── Execute delivery on an existing notification record ───────────────────────
 
 const executeDelivery = async (notification) => {
@@ -188,12 +215,18 @@ const handleDeliveryFailure = async (notification, attemptCount, result) => {
 // ── Retry failed notifications ────────────────────────────────────────────────
 // Document: Retry mechanism — processes pending notifications due for retry
 
+
 const retryFailedNotifications = async (batchSize = 50) => {
   const now = new Date();
 
+  // Query 1: retry failed notifications whose backoff window has elapsed
+  // Query 2: deliver future-scheduled notifications whose time has now arrived
   const notifications = await Notification.find({
-    status:      'pending',
-    nextRetryAt: { $lte: now },
+    status: 'pending',
+    $or: [
+      { nextRetryAt: { $lte: now } },
+      { scheduledAt:  { $lte: now }, nextRetryAt: null },
+    ],
   })
     .limit(batchSize)
     .lean();
@@ -202,7 +235,7 @@ const retryFailedNotifications = async (batchSize = 50) => {
     return { processed: 0, succeeded: 0, failed: 0 };
   }
 
-  logger.info(`Retry batch: processing ${notifications.length} notifications`);
+  logger.info(`Retry/scheduled batch: processing ${notifications.length} notifications`);
 
   let succeeded = 0;
   let failed    = 0;
@@ -219,7 +252,7 @@ const retryFailedNotifications = async (batchSize = 50) => {
     }
   }
 
-  logger.info(`Retry batch complete: succeeded=${succeeded} failed=${failed}`);
+  logger.info(`Retry/scheduled batch complete: succeeded=${succeeded} failed=${failed}`);
 
   return {
     processed: notifications.length,
@@ -228,6 +261,7 @@ const retryFailedNotifications = async (batchSize = 50) => {
     completedAt: new Date(),
   };
 };
+ 
 
 // ── Send bulk notifications ───────────────────────────────────────────────────
 // Document: Bulk send — used by Module D reminder engine

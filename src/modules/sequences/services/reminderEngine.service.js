@@ -1,15 +1,40 @@
 'use strict';
 
 const { Sequence, VALID_REMINDER_TYPES } = require('../models/Sequence.model');
-const Invoice    = require('../../customers/models/Invoice.model');
-const Customer   = require('../../customers/models/Customer.model');
-const AppError   = require('../../../shared/errors/AppError');
-const logger     = require('../../../shared/utils/logger');
+const Invoice          = require('../../customers/models/Invoice.model');
+const Customer         = require('../../customers/models/Customer.model');
+const AppError         = require('../../../shared/errors/AppError');
+const logger           = require('../../../shared/utils/logger');
 const schedulerService = require('./scheduler.service');
-const alertService = require('../../alerts/services/alert.service');
+const complianceService = require('../../compliance/services/compliance.service');
 
-// ── Trigger types from document ───────────────────────────────────────────────
-// Document: Immediate, Scheduled, Recurring
+// ── Compliance channel filter — shared by all three reminder functions ─────────
+// Removes channels blocked by DNC list or opt-out for this customer
+
+const applyComplianceFilter = async (userId, customerId, channels, invoiceId) => {
+  const checks = await Promise.all(
+    channels.map(async (channel) => {
+      const check = await complianceService.isDeliveryAllowed(
+        String(userId),
+        String(customerId),
+        channel
+      );
+      return { channel, ...check };
+    })
+  );
+
+  const allowed = checks.filter((c) => c.allowed).map((c) => c.channel);
+  const blocked = checks.filter((c) => !c.allowed);
+
+  if (blocked.length > 0) {
+    logger.info(
+      `Compliance: blocked channels for invoice ${invoiceId}: ` +
+      blocked.map((b) => `${b.channel}(${b.reason})`).join(', ')
+    );
+  }
+
+  return allowed;
+};
 
 // ── Send immediate reminder ───────────────────────────────────────────────────
 // Document: Reminder Type — Immediate
@@ -32,21 +57,39 @@ const sendImmediateReminder = async (userId, invoiceId, options = {}) => {
   if (!customer) throw new AppError('Customer not found for this invoice.', 404);
 
   // Determine channels — use customer preference or override
-  const channels = options.channels ||
+  let channels = options.channels ||
     customer.preferences?.channels ||
     ['email'];
+
+  // ── Compliance guard — DNC / opt-in enforcement (GDPR) ───────────────────
+  channels = await applyComplianceFilter(
+    userId,
+    String(customer._id),
+    channels,
+    invoiceId
+  );
+
+  if (channels.length === 0) {
+    logger.info(
+      `Immediate reminder blocked by compliance for all channels: invoice=${invoiceId}`
+    );
+    return {
+      dispatched:   false,
+      reason:       'compliance_blocked',
+      reminderType: 'immediate',
+    };
+  }
 
   // Build reminder payload
   const payload = buildReminderPayload({
     invoice,
     customer,
     channels,
-    reminderType: 'immediate',
-    phaseType:    options.phaseType || 'first-overdue',
-    customMessage: options.message  || null,
+    reminderType:  'immediate',
+    phaseType:     options.phaseType || 'first-overdue',
+    customMessage: options.message   || null,
   });
 
-  // Log the immediate reminder dispatch
   logger.info(
     `Immediate reminder dispatched: invoice=${invoiceId} channels=${channels.join(',')} user=${userId}`
   );
@@ -100,13 +143,28 @@ const processScheduledReminder = async (invoice, phase, sequence) => {
 
   // Filter channels by customer preference
   const allowedChannels = customer.preferences?.channels || ['email'];
-  const channels        = phase.channels.filter((c) => allowedChannels.includes(c));
+  let channels          = phase.channels.filter((c) => allowedChannels.includes(c));
 
   if (channels.length === 0) {
     logger.info(
       `No matching channels for invoice ${invoice._id} phase ${phase.phaseNumber} — skipping`
     );
     return { dispatched: false, reason: 'no_matching_channels' };
+  }
+
+  // ── Compliance guard — DNC / opt-in enforcement (GDPR) ───────────────────
+  channels = await applyComplianceFilter(
+    String(invoice.userId),
+    String(invoice.customerId),
+    channels,
+    String(invoice._id)
+  );
+
+  if (channels.length === 0) {
+    logger.info(
+      `All channels blocked by compliance: invoice=${invoice._id} phase=${phase.phaseNumber}`
+    );
+    return { dispatched: false, reason: 'compliance_blocked' };
   }
 
   // Get message template for each channel
@@ -159,7 +217,26 @@ const processRecurringReminder = async (invoice, phase, sequence) => {
   if (!customer) return { dispatched: false, reason: 'customer_not_found' };
 
   const allowedChannels = customer.preferences?.channels || ['email'];
-  const channels        = phase.channels.filter((c) => allowedChannels.includes(c));
+  let channels          = phase.channels.filter((c) => allowedChannels.includes(c));
+
+  if (channels.length === 0) {
+    return { dispatched: false, reason: 'no_matching_channels' };
+  }
+
+  // ── Compliance guard — DNC / opt-in enforcement (GDPR) ───────────────────
+  channels = await applyComplianceFilter(
+    String(invoice.userId),
+    String(invoice.customerId),
+    channels,
+    String(invoice._id)
+  );
+
+  if (channels.length === 0) {
+    logger.info(
+      `All channels blocked by compliance (recurring): invoice=${invoice._id} phase=${phase.phaseNumber}`
+    );
+    return { dispatched: false, reason: 'compliance_blocked' };
+  }
 
   const payload = buildReminderPayload({
     invoice,
@@ -222,20 +299,20 @@ const buildReminderPayload = ({
   });
 
   return {
-    invoiceId:    String(invoice._id),
-    customerId:   String(customer._id),
+    invoiceId:     String(invoice._id),
+    customerId:    String(customer._id),
     invoiceNumber: invoice.invoiceNumber,
-    amount:       invoice.amount,
-    currency:     invoice.currency,
-    dueDate:      invoice.dueDate,
-    amountDue:    Math.max(0, invoice.amount - invoice.amountPaid),
+    amount:        invoice.amount,
+    currency:      invoice.currency,
+    dueDate:       invoice.dueDate,
+    amountDue:     Math.max(0, invoice.amount - invoice.amountPaid),
     reminderType,
     phaseType,
     phaseNumber,
     repeatNumber,
     maxRepeats,
     messages,
-    createdAt:    new Date(),
+    createdAt:     new Date(),
   };
 };
 
@@ -251,14 +328,14 @@ const interpolateTemplate = (template, { invoice, customer }) => {
   );
 
   const variables = {
-    '{{customerName}}':    customer.name              || 'Customer',
-    '{{invoiceNumber}}':   invoice.invoiceNumber       || '',
-    '{{amount}}':          invoice.amount?.toFixed(2)  || '0.00',
-    '{{currency}}':        invoice.currency            || 'USD',
-    '{{dueDate}}':         new Date(invoice.dueDate).toLocaleDateString(),
-    '{{amountDue}}':       Math.max(0, invoice.amount - invoice.amountPaid).toFixed(2),
-    '{{daysOverdue}}':     String(daysOverdue),
-    '{{companyName}}':     'Collectly',
+    '{{customerName}}':  customer.name             || 'Customer',
+    '{{invoiceNumber}}': invoice.invoiceNumber      || '',
+    '{{amount}}':        invoice.amount?.toFixed(2) || '0.00',
+    '{{currency}}':      invoice.currency           || 'USD',
+    '{{dueDate}}':       new Date(invoice.dueDate).toLocaleDateString(),
+    '{{amountDue}}':     Math.max(0, invoice.amount - invoice.amountPaid).toFixed(2),
+    '{{daysOverdue}}':   String(daysOverdue),
+    '{{companyName}}':   'Collectly',
   };
 
   let result = template;
@@ -290,11 +367,11 @@ const buildDefaultMessage = (invoice, customer, phaseType, channel) => {
   );
 
   const messages = {
-    'pre-due':      `Dear ${customer.name}, your invoice #${invoice.invoiceNumber} for ${invoice.currency} ${invoice.amount} is due soon. Please ensure timely payment.`,
-    'due-day':      `Dear ${customer.name}, your invoice #${invoice.invoiceNumber} for ${invoice.currency} ${invoice.amount} is due today. Please make payment immediately.`,
+    'pre-due':       `Dear ${customer.name}, your invoice #${invoice.invoiceNumber} for ${invoice.currency} ${invoice.amount} is due soon. Please ensure timely payment.`,
+    'due-day':       `Dear ${customer.name}, your invoice #${invoice.invoiceNumber} for ${invoice.currency} ${invoice.amount} is due today. Please make payment immediately.`,
     'first-overdue': `Dear ${customer.name}, your invoice #${invoice.invoiceNumber} for ${invoice.currency} ${invoice.amount} is overdue by ${daysOverdue} day(s). Please settle immediately.`,
-    'follow-up':    `Dear ${customer.name}, this is a follow-up. Invoice #${invoice.invoiceNumber} remains unpaid (${invoice.currency} ${invoice.amount}). Please contact us urgently.`,
-    'final-notice': `Dear ${customer.name}, FINAL NOTICE: Invoice #${invoice.invoiceNumber} for ${invoice.currency} ${invoice.amount} is ${daysOverdue} day(s) overdue. Immediate action required.`,
+    'follow-up':     `Dear ${customer.name}, this is a follow-up. Invoice #${invoice.invoiceNumber} remains unpaid (${invoice.currency} ${invoice.amount}). Please contact us urgently.`,
+    'final-notice':  `Dear ${customer.name}, FINAL NOTICE: Invoice #${invoice.invoiceNumber} for ${invoice.currency} ${invoice.amount} is ${daysOverdue} day(s) overdue. Immediate action required.`,
   };
 
   return messages[phaseType] || messages['first-overdue'];
@@ -315,7 +392,6 @@ const buildDefaultSubject = (invoice, phaseType) => {
 
 // ── Process a single invoice reminder ─────────────────────────────────────────
 // Main dispatch function called by the scheduler
-
 
 const processInvoiceReminder = async (invoice) => {
   try {
@@ -358,19 +434,6 @@ const processInvoiceReminder = async (invoice) => {
         phase,
         'sent'
       );
-
-      // Module I — fire-and-forget alerts (never block reminder processing)
-      alertService.triggerReminderSent(invoice.userId, {
-        invoice,
-        customer: invoice.customerId,
-        phase,
-      }).catch(() => {});
-
-      alertService.triggerEscalationTriggered(invoice.userId, {
-        invoice,
-        customer: invoice.customerId,
-        phase,
-      }).catch(() => {});
     }
 
     return { processed: result.dispatched, phase: phase.phaseNumber, result };
@@ -379,9 +442,6 @@ const processInvoiceReminder = async (invoice) => {
     return { processed: false, reason: 'error', error: err.message };
   }
 };
-
-
-
 
 // ── Run the scheduled batch ───────────────────────────────────────────────────
 // Called periodically — processes all invoices due for reminders
@@ -413,10 +473,10 @@ const runReminderBatch = async (batchSize = 50) => {
   );
 
   return {
-    processed:    successCount,
-    failed:       failCount,
-    total:        invoices.length,
-    completedAt:  new Date(),
+    processed:   successCount,
+    failed:      failCount,
+    total:       invoices.length,
+    completedAt: new Date(),
   };
 };
 

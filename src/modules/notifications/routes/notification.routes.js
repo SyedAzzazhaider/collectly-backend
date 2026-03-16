@@ -4,12 +4,32 @@ const express    = require('express');
 const router     = express.Router();
 
 const notificationController = require('../controllers/notification.controller');
+const { handleSendGridWebhook } = require('../controllers/webhook.controller');
 const { protect, restrictTo } = require('../../../shared/middlewares/auth.middleware');
 const {
   validateSendNotification,
   validateSendBulk,
   validateGetNotifications,
 } = require('../validators/notification.validator');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PUBLIC ROUTES — no authentication required
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * POST /api/v1/notifications/webhooks/sendgrid
+ * Public webhook — receives bounce/block/delivery events from SendGrid
+ * No auth required — verified by HMAC signature
+ */
+router.post(
+  '/webhooks/sendgrid',
+  express.json({ type: '*/*' }),
+  handleSendGridWebhook
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ALL ROUTES BELOW REQUIRE AUTHENTICATION
+// ─────────────────────────────────────────────────────────────────────────────
 
 router.use(protect);
 
