@@ -10,7 +10,7 @@ const passport     = require('passport');
 
 const AppError          = require('./src/shared/errors/AppError');
 const errorHandler      = require('./src/shared/errors/errorHandler');
-const { globalLimiter } = require('./src/shared/middlewares/rateLimiter');
+const { globalLimiter, perUserLimiter } = require('./src/shared/middlewares/rateLimiter');
 const logger            = require('./src/shared/utils/logger');
 
 require('./src/modules/auth/services/passport.service');
@@ -51,6 +51,7 @@ if (process.env.NODE_ENV !== 'test') {
 // ── Global rate limiter ───────────────────────────────────────────────────────
 
 app.use(globalLimiter);
+app.use('/api/v1', perUserLimiter);
 
 // ── Passport (OAuth) ──────────────────────────────────────────────────────────
 

@@ -211,4 +211,12 @@ router.post(
   paymentPlanController.recordPayment
 );
 
+
+router.post(
+  '/payment-plans/:id/installments/:installmentNumber/payment-link',
+  restrictTo('owner', 'admin', 'agent'),
+  paymentPlanController.generatePaymentLink
+);
+
+
 module.exports = router;

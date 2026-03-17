@@ -102,4 +102,17 @@ const recordPayment = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { create, getAll, getById, accept, reject, cancel, recordPayment };
+
+const generatePaymentLink = async (req, res, next) => {
+  try {
+    const result = await paymentPlanService.generateStripePaymentLink(
+      req.user.id,
+      req.params.id,
+      parseInt(req.params.installmentNumber, 10)
+    );
+    sendSuccess(res, 200, 'Payment link generated.', result);
+  } catch (err) { next(err); }
+};
+
+
+module.exports = { create, getAll, getById, accept, reject, cancel, recordPayment,generatePaymentLink };

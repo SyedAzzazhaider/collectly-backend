@@ -294,6 +294,69 @@ const cancelPaymentPlan = async (userId, planId) => {
   return plan;
 };
 
+
+// ── Generate Stripe Payment Link for an installment ───────────────────────────
+
+const generateStripePaymentLink = async (userId, planId, installmentNumber) => {
+  const plan = await PaymentPlan.findOne({ _id: planId, userId });
+  if (!plan) throw new AppError('Payment plan not found.', 404, 'PAYMENT_PLAN_NOT_FOUND');
+
+  const installment = plan.installments.find(
+    (i) => i.installmentNumber === installmentNumber
+  );
+  if (!installment) {
+    throw new AppError('Installment not found.', 404, 'INSTALLMENT_NOT_FOUND');
+  }
+  if (installment.status === 'paid') {
+    throw new AppError('Installment already paid.', 400, 'ALREADY_PAID');
+  }
+
+  const stripeKey = process.env.STRIPE_SECRET_KEY;
+  if (!stripeKey || stripeKey.includes('your_')) {
+    throw new AppError('Stripe not configured.', 503, 'STRIPE_NOT_CONFIGURED');
+  }
+
+  const stripe      = require('stripe')(stripeKey);
+  const amountCents = Math.round(installment.amount * 100);
+  const currency    = (plan.currency || 'usd').toLowerCase();
+
+  const price = await stripe.prices.create({
+    currency,
+    unit_amount:  amountCents,
+    product_data: {
+      name: `Payment Plan Installment #${installmentNumber}`,
+    },
+  });
+
+  const paymentLink = await stripe.paymentLinks.create({
+    line_items: [{ price: price.id, quantity: 1 }],
+    metadata: {
+      planId:            String(planId),
+      installmentNumber: String(installmentNumber),
+      userId:            String(userId),
+    },
+    after_completion: {
+      type:     'redirect',
+      redirect: { url: `${process.env.FRONTEND_URL}/payment/success` },
+    },
+  });
+
+  installment.paymentLink = paymentLink.url;
+  await plan.save({ validateBeforeSave: false });
+
+  logger.info(
+    `Stripe payment link generated: planId=${planId} installment=${installmentNumber}`
+  );
+
+  return { paymentLink: paymentLink.url, stripeId: paymentLink.id };
+};
+
+
+
+
+
+
+
 module.exports = {
   createPaymentPlan,
   getPaymentPlans,
@@ -303,4 +366,5 @@ module.exports = {
   recordInstallmentPayment,
   cancelPaymentPlan,
   generateInstallments,
+  generateStripePaymentLink
 };

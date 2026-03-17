@@ -7,14 +7,12 @@ const smsService          = require('./sms.service');
 const AppError            = require('../../../shared/errors/AppError');
 const logger              = require('../../../shared/utils/logger');
 const webhookService      = require('./webhook.service');
-const complianceService = require('../../compliance/services/compliance.service');
 
 // ── Calculate retry backoff ───────────────────────────────────────────────────
-// Document: Retry logic with exponential backoff
 
 const calculateNextRetry = (attemptCount, baseMinutes = 5) => {
   const backoffMinutes = baseMinutes * Math.pow(2, attemptCount - 1);
-  const capped         = Math.min(backoffMinutes, 60 * 24); // max 24 hours
+  const capped         = Math.min(backoffMinutes, 60 * 24);
   const nextRetry      = new Date();
   nextRetry.setMinutes(nextRetry.getMinutes() + capped);
   return nextRetry;
@@ -47,7 +45,6 @@ const dispatchToProvider = async (notification) => {
       });
 
     case 'in-app':
-      // Stored in DB — delivered via API polling
       logger.info(`In-app notification queued: ${notification._id}`);
       return {
         success:           true,
@@ -76,9 +73,9 @@ const dispatchToProvider = async (notification) => {
   }
 };
 
-
 // ── Send a single notification ────────────────────────────────────────────────
-// Document: Send notification, record attempt, handle retry
+// Compliance guard (DNC/opt-in) is enforced upstream in reminderEngine.service.js
+// This service is a pure transport layer.
 
 const sendNotification = async (userId, data) => {
   const notification = await notificationService.createNotification(userId, data);
@@ -89,31 +86,6 @@ const sendNotification = async (userId, data) => {
       `Notification scheduled for future delivery: ${notification._id} at ${notification.scheduledAt}`
     );
     return notification;
-  }
-
-  // ── Compliance guard — check DNC and opt-in before dispatching ────────────
-  if (notification.customerId && notification.channel !== 'in-app') {
-    try {
-      const check = await complianceService.isDeliveryAllowed(
-        String(userId),
-        String(notification.customerId),
-        notification.channel
-      );
-      if (!check.allowed) {
-        logger.warn(
-          `Delivery blocked by compliance: notificationId=${notification._id} ` +
-          `channel=${notification.channel} reason=${check.reason}`
-        );
-        notification.status           = 'cancelled';
-        notification.lastErrorCode    = 'COMPLIANCE_BLOCKED';
-        notification.lastErrorMessage = `Blocked: ${check.reason}`;
-        await notification.save();
-        return notification;
-      }
-    } catch (err) {
-      // Non-fatal — log but do not block delivery if compliance service errors
-      logger.error(`Compliance check failed for notification ${notification._id}: ${err.message}`);
-    }
   }
 
   return executeDelivery(notification);
@@ -175,12 +147,12 @@ const executeDelivery = async (notification) => {
 // ── Handle delivery failure ───────────────────────────────────────────────────
 
 const handleDeliveryFailure = async (notification, attemptCount, result) => {
-  const now         = new Date();
+  const now            = new Date();
   const hasMoreRetries = attemptCount < notification.maxAttempts;
 
-  notification.attemptCount      = attemptCount;
-  notification.lastErrorCode     = result.errorCode    || 'UNKNOWN';
-  notification.lastErrorMessage  = result.errorMessage || 'Unknown error';
+  notification.attemptCount     = attemptCount;
+  notification.lastErrorCode    = result.errorCode    || 'UNKNOWN';
+  notification.lastErrorMessage = result.errorMessage || 'Unknown error';
 
   notification.deliveryAttempts.push({
     attemptNumber: attemptCount,
@@ -199,8 +171,8 @@ const handleDeliveryFailure = async (notification, attemptCount, result) => {
       `id=${notification._id} nextRetry=${notification.nextRetryAt.toISOString()}`
     );
   } else {
-    notification.status  = 'failed';
-    notification.failedAt = now;
+    notification.status      = 'failed';
+    notification.failedAt    = now;
     notification.nextRetryAt = null;
     logger.error(
       `Notification permanently failed after ${attemptCount} attempts: ` +
@@ -213,19 +185,15 @@ const handleDeliveryFailure = async (notification, attemptCount, result) => {
 };
 
 // ── Retry failed notifications ────────────────────────────────────────────────
-// Document: Retry mechanism — processes pending notifications due for retry
-
 
 const retryFailedNotifications = async (batchSize = 50) => {
   const now = new Date();
 
-  // Query 1: retry failed notifications whose backoff window has elapsed
-  // Query 2: deliver future-scheduled notifications whose time has now arrived
   const notifications = await Notification.find({
     status: 'pending',
     $or: [
       { nextRetryAt: { $lte: now } },
-      { scheduledAt:  { $lte: now }, nextRetryAt: null },
+      { scheduledAt: { $lte: now }, nextRetryAt: null },
     ],
   })
     .limit(batchSize)
@@ -255,16 +223,14 @@ const retryFailedNotifications = async (batchSize = 50) => {
   logger.info(`Retry/scheduled batch complete: succeeded=${succeeded} failed=${failed}`);
 
   return {
-    processed: notifications.length,
+    processed:   notifications.length,
     succeeded,
     failed,
     completedAt: new Date(),
   };
 };
- 
 
 // ── Send bulk notifications ───────────────────────────────────────────────────
-// Document: Bulk send — used by Module D reminder engine
 
 const sendBulkNotifications = async (userId, notificationsData) => {
   const results = [];
@@ -297,7 +263,6 @@ const sendBulkNotifications = async (userId, notificationsData) => {
 };
 
 // ── Send notification from Module D reminder payload ──────────────────────────
-// Document: Integration with Module D — consumes reminder engine payloads
 
 const sendFromReminderPayload = async (userId, payload) => {
   const {
@@ -365,11 +330,11 @@ const getDeliveryStats = async (userId) => {
       { $match: { userId: oid } },
       {
         $group: {
-          _id:      '$channel',
-          total:    { $sum: 1 },
-          sent:     { $sum: { $cond: [{ $eq: ['$status', 'sent'] }, 1, 0] } },
-          failed:   { $sum: { $cond: [{ $eq: ['$status', 'failed'] }, 1, 0] } },
-          pending:  { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] } },
+          _id:         '$channel',
+          total:       { $sum: 1 },
+          sent:        { $sum: { $cond: [{ $eq: ['$status', 'sent'] }, 1, 0] } },
+          failed:      { $sum: { $cond: [{ $eq: ['$status', 'failed'] }, 1, 0] } },
+          pending:     { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] } },
           avgAttempts: { $avg: '$attemptCount' },
         },
       },
@@ -383,12 +348,12 @@ const getDeliveryStats = async (userId) => {
   const byChannel = {};
   channelStats.forEach((c) => {
     byChannel[c._id] = {
-      total:       c.total,
-      sent:        c.sent,
-      failed:      c.failed,
-      pending:     c.pending,
+      total:        c.total,
+      sent:         c.sent,
+      failed:       c.failed,
+      pending:      c.pending,
       deliveryRate: c.total > 0 ? Math.round((c.sent / c.total) * 100) : 0,
-      avgAttempts: Math.round((c.avgAttempts || 0) * 100) / 100,
+      avgAttempts:  Math.round((c.avgAttempts || 0) * 100) / 100,
     };
   });
 

@@ -44,4 +44,22 @@ const logger = createLogger({
   silent: isTest,
 });
 
+
+// ── Production log aggregation (Logtail / BetterStack) ───────────────────────
+if (process.env.LOGTAIL_TOKEN &&
+    process.env.LOGTAIL_TOKEN.trim() !== '' &&
+    process.env.NODE_ENV === 'production') {
+  try {
+    const { Logtail }          = require('@logtail/node');
+    const { LogtailTransport } = require('@logtail/winston');
+    const logtail              = new Logtail(process.env.LOGTAIL_TOKEN);
+    logger.add(new LogtailTransport(logtail));
+    console.log('Logtail transport enabled');
+  } catch (err) {
+    console.warn('Logtail transport failed to initialize:', err.message);
+  }
+}
+
+
+
 module.exports = logger;
