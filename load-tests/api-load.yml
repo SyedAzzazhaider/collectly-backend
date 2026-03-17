@@ -1,0 +1,48 @@
+config:
+  target: "http://localhost:5000"
+  phases:
+    - duration: 30
+      arrivalRate: 5
+      name: "Warm up"
+    - duration: 60
+      arrivalRate: 25
+      name: "Load test"
+    - duration: 30
+      arrivalRate: 50
+      name: "Stress test"
+  defaults:
+    headers:
+      Content-Type: "application/json"
+
+scenarios:
+  - name: "Health check"
+    weight: 30
+    flow:
+      - get:
+          url: "/health"
+          expect:
+            - statusCode: 200
+
+  - name: "Auth and list customers"
+    weight: 70
+    flow:
+      - post:
+          url: "/api/v1/auth/login"
+          json:
+            email: "admin@collectly.dev"
+            password: "Admin@Collectly123"
+          capture:
+            - json: "$.data.accessToken"
+              as: "token"
+      - get:
+          url: "/api/v1/customers"
+          headers:
+            Authorization: "Bearer {{ token }}"
+          expect:
+            - statusCode: 200
+      - get:
+          url: "/api/v1/invoices"
+          headers:
+            Authorization: "Bearer {{ token }}"
+          expect:
+            - statusCode: 200
