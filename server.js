@@ -8,18 +8,19 @@ const logger    = require('./src/shared/utils/logger');
 const PORT = process.env.PORT || 5000;
 
 // ── Scheduler config ──────────────────────────────────────────────────────────
-// Reminder batch: auto-processes invoices due for reminders
-// Subscription check: alerts users about upcoming renewals
-// Both disabled automatically when NODE_ENV=test
 
-const SCHEDULER_ENABLED     = process.env.SCHEDULER_ENABLED !== 'false' &&
-                               process.env.NODE_ENV !== 'test';
-const SCHEDULER_INTERVAL_MS = parseInt(process.env.SCHEDULER_INTERVAL_MS, 10) || 5 * 60 * 1000;
-const SCHEDULER_BATCH_SIZE  = parseInt(process.env.SCHEDULER_BATCH_SIZE,  10) || 100;
-const SUBSCRIPTION_CHECK_MS = 60 * 60 * 1000; // Run subscription expiry check every 1 hour
+const SCHEDULER_ENABLED       = process.env.SCHEDULER_ENABLED !== 'false' &&
+                                 process.env.NODE_ENV !== 'test';
+const SCHEDULER_INTERVAL_MS   = parseInt(process.env.SCHEDULER_INTERVAL_MS,   10) || 5 * 60 * 1000;
+const SCHEDULER_BATCH_SIZE    = parseInt(process.env.SCHEDULER_BATCH_SIZE,    10) || 100;
+const SUBSCRIPTION_CHECK_MS   = 60 * 60 * 1000;   // 1 hour
+// FEAT-05: retry failed/scheduled notifications every 10 minutes
+const NOTIFICATION_RETRY_MS   = parseInt(process.env.NOTIFICATION_RETRY_MS,   10) || 10 * 60 * 1000;
+const NOTIFICATION_RETRY_BATCH = parseInt(process.env.NOTIFICATION_RETRY_BATCH, 10) || 50;
 
 let reminderTimer      = null;
 let subscriptionTimer  = null;
+let notificationTimer  = null;
 let batchRunning       = false;
 
 const startSchedulers = () => {
@@ -28,11 +29,11 @@ const startSchedulers = () => {
     return;
   }
 
-  const reminderEngine = require('./src/modules/sequences/services/reminderEngine.service');
-  const alertService   = require('./src/modules/alerts/services/alert.service');
+  const reminderEngine   = require('./src/modules/sequences/services/reminderEngine.service');
+  const alertService     = require('./src/modules/alerts/services/alert.service');
+  const deliveryService  = require('./src/modules/notifications/services/delivery.service');
 
   // ── Reminder batch ──────────────────────────────────────────────────────────
-
   const runReminderBatch = async () => {
     if (batchRunning) {
       logger.warn('Scheduler: previous batch still running — skipping this tick');
@@ -54,7 +55,6 @@ const startSchedulers = () => {
   };
 
   // ── Subscription expiry check ───────────────────────────────────────────────
-
   const runSubscriptionCheck = async () => {
     try {
       const result = await alertService.checkSubscriptionExpiry();
@@ -66,22 +66,41 @@ const startSchedulers = () => {
     }
   };
 
-  // 30-second warm-up delay before first run
+  // ── FEAT-05: Notification retry / scheduled delivery ───────────────────────
+  // Processes failed notifications with backoff and future-scheduled notifications
+  // that are now due. This replaces the manual-only admin endpoint as the primary
+  // automated retry mechanism.
+  const runNotificationRetry = async () => {
+    try {
+      const result = await deliveryService.retryFailedNotifications(NOTIFICATION_RETRY_BATCH);
+      if (result.processed > 0) {
+        logger.info(
+          `Notification retry — processed: ${result.processed}, succeeded: ${result.succeeded}, failed: ${result.failed}`
+        );
+      }
+    } catch (err) {
+      logger.error(`Notification retry error: ${err.message}`);
+    }
+  };
+
+  // 30-second warm-up before first runs (let DB connection settle)
   setTimeout(runReminderBatch,     30 * 1000);
   setTimeout(runSubscriptionCheck, 60 * 1000);
+  setTimeout(runNotificationRetry, 90 * 1000);  // FEAT-05
 
   reminderTimer     = setInterval(runReminderBatch,     SCHEDULER_INTERVAL_MS);
   subscriptionTimer = setInterval(runSubscriptionCheck, SUBSCRIPTION_CHECK_MS);
+  notificationTimer = setInterval(runNotificationRetry, NOTIFICATION_RETRY_MS);  // FEAT-05
 
-  logger.info(
-    `Reminder scheduler started — interval: ${SCHEDULER_INTERVAL_MS / 1000}s, batch: ${SCHEDULER_BATCH_SIZE}`
-  );
+  logger.info(`Reminder scheduler started — interval: ${SCHEDULER_INTERVAL_MS / 1000}s, batch: ${SCHEDULER_BATCH_SIZE}`);
   logger.info('Subscription expiry scheduler started — interval: 1h');
+  logger.info(`Notification retry scheduler started — interval: ${NOTIFICATION_RETRY_MS / 1000}s, batch: ${NOTIFICATION_RETRY_BATCH}`);
 };
 
 const stopSchedulers = () => {
   if (reminderTimer)     { clearInterval(reminderTimer);     reminderTimer     = null; }
   if (subscriptionTimer) { clearInterval(subscriptionTimer); subscriptionTimer = null; }
+  if (notificationTimer) { clearInterval(notificationTimer); notificationTimer = null; }  // FEAT-05
   logger.info('Schedulers stopped');
 };
 

@@ -1,10 +1,10 @@
 'use strict';
 
-const { Sequence }  = require('../models/Sequence.model');
-const Invoice       = require('../../customers/models/Invoice.model');
-const Customer      = require('../../customers/models/Customer.model');
-const AppError      = require('../../../shared/errors/AppError');
-const logger        = require('../../../shared/utils/logger');
+const { Sequence } = require('../models/Sequence.model');
+const Invoice      = require('../../customers/models/Invoice.model');
+const Customer     = require('../../customers/models/Customer.model');
+const AppError     = require('../../../shared/errors/AppError');
+const logger       = require('../../../shared/utils/logger');
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -16,13 +16,40 @@ const PHASE_TYPE_ORDER = [
   'final-notice',
 ];
 
-// ── Calculate trigger date for a phase ───────────────────────────────────────
+// ── BUG-06 FIX: Timezone-aware trigger date calculation ───────────────────────
+// Previous code: date.setHours(9,0,0,0) applied 9 AM in SERVER timezone.
+// Fix: compute 9 AM in the customer's local timezone using Intl-based offset.
 
-const calculateTriggerDate = (dueDate, daysOffset) => {
-  const date = new Date(dueDate);
-  date.setDate(date.getDate() + daysOffset);
-  date.setHours(9, 0, 0, 0); // Default send time: 9:00 AM
-  return date;
+const getTimezoneOffsetMs = (timezone, referenceDate) => {
+  try {
+    const d       = new Date(referenceDate);
+    const utcStr  = d.toLocaleString('en-US', { timeZone: 'UTC' });
+    const tzStr   = d.toLocaleString('en-US', { timeZone: timezone });
+    return new Date(tzStr).getTime() - new Date(utcStr).getTime();
+  } catch {
+    return 0; // fallback: treat as UTC
+  }
+};
+
+const calculateTriggerDate = (dueDate, daysOffset, timezone = 'UTC') => {
+  const base = new Date(dueDate);
+  base.setDate(base.getDate() + daysOffset);
+
+  try {
+    // Get YYYY-MM-DD string in customer's timezone (en-CA gives ISO-like format)
+    const localDateStr = base.toLocaleDateString('en-CA', { timeZone: timezone });
+
+    // Build "9:00 AM UTC" for that date, then shift by timezone offset
+    // so that the result equals 9:00 AM in the customer's local time
+    const nineAmUtc  = new Date(`${localDateStr}T09:00:00.000Z`);
+    const offsetMs   = getTimezoneOffsetMs(timezone, nineAmUtc);
+    return new Date(nineAmUtc.getTime() - offsetMs);
+  } catch {
+    // Invalid/unknown timezone: fall back to 9 AM UTC on that date
+    const fallback = new Date(base);
+    fallback.setUTCHours(9, 0, 0, 0);
+    return fallback;
+  }
 };
 
 // ── Check if invoice amount satisfies phase trigger rule ──────────────────────
@@ -42,25 +69,26 @@ const invoiceSatisfiesAmountRule = (invoice, triggerRule) => {
 const getNextEligiblePhase = (sequence, invoice, now = new Date()) => {
   const currentPhase = invoice.currentPhase || 0;
 
+  // BUG-06: read timezone from populated customerId object
+  const timezone = invoice.customerId?.timezone || 'UTC';
+
   const enabledPhases = sequence.phases
     .filter((p) => p.isEnabled)
     .sort((a, b) => a.phaseNumber - b.phaseNumber);
 
   for (const phase of enabledPhases) {
-    // Skip already completed phases
     if (phase.phaseNumber <= currentPhase) continue;
 
     const triggerDate = calculateTriggerDate(
       invoice.dueDate,
-      phase.triggerRule.daysOffset
+      phase.triggerRule.daysOffset,
+      timezone                        // BUG-06
     );
 
-    // Phase is not yet due
     if (triggerDate > now) {
       return { phase, triggerDate, isDue: false };
     }
 
-    // Check amount eligibility
     if (!invoiceSatisfiesAmountRule(invoice, phase.triggerRule)) {
       logger.info(
         `Invoice ${invoice._id} skipped phase ${phase.phaseNumber} — amount not in threshold`
@@ -71,13 +99,14 @@ const getNextEligiblePhase = (sequence, invoice, now = new Date()) => {
     return { phase, triggerDate, isDue: true };
   }
 
-  return null; // No more phases
+  return null;
 };
 
 // ── Calculate next reminder date ──────────────────────────────────────────────
 
 const calculateNextReminderDate = (sequence, invoice, completedPhaseNumber) => {
-  const now = new Date();
+  const now      = new Date();
+  const timezone = invoice.customerId?.timezone || 'UTC'; // BUG-06
 
   const remainingPhases = sequence.phases
     .filter((p) => p.isEnabled && p.phaseNumber > completedPhaseNumber)
@@ -86,7 +115,8 @@ const calculateNextReminderDate = (sequence, invoice, completedPhaseNumber) => {
   for (const phase of remainingPhases) {
     const triggerDate = calculateTriggerDate(
       invoice.dueDate,
-      phase.triggerRule.daysOffset
+      phase.triggerRule.daysOffset,
+      timezone                        // BUG-06
     );
 
     if (invoiceSatisfiesAmountRule(invoice, phase.triggerRule)) {
@@ -94,21 +124,24 @@ const calculateNextReminderDate = (sequence, invoice, completedPhaseNumber) => {
     }
   }
 
-  return null; // Sequence completed
+  return null;
 };
 
 // ── Get all invoices due for reminders ────────────────────────────────────────
-// Called by the scheduling engine to find invoices needing action
 
 const getInvoicesDueForReminders = async (batchSize = 100) => {
   const now = new Date();
 
+  // BUG-07 FIX: select +reminderHistory so processRecurringReminder can count
+  // sentInPhase correctly. Without this, reminderHistory is always undefined
+  // (field has select:false on schema), making maxRepeats enforcement fail.
   const invoices = await Invoice.find({
     sequenceId:     { $ne: null },
     sequencePaused: false,
     status:         { $in: ['pending', 'overdue', 'partial'] },
     nextReminderAt: { $lte: now },
   })
+    .select('+reminderHistory')                               // BUG-07
     .populate('sequenceId')
     .populate('customerId', 'name email phone timezone preferences')
     .limit(batchSize)
@@ -121,7 +154,8 @@ const getInvoicesDueForReminders = async (batchSize = 100) => {
 
 const advanceInvoicePhase = async (invoiceId, userId, completedPhase, status = 'sent', note = null) => {
   const invoice = await Invoice.findOne({ _id: invoiceId, userId })
-    .select('+reminderHistory');
+    .select('+reminderHistory')
+    .populate('customerId', 'timezone');  // BUG-06: needed for calculateNextReminderDate
 
   if (!invoice) {
     throw new AppError('Invoice not found.', 404, 'INVOICE_NOT_FOUND');
@@ -135,7 +169,6 @@ const advanceInvoicePhase = async (invoiceId, userId, completedPhase, status = '
     return invoice;
   }
 
-  // Record reminder in history
   invoice.reminderHistory.push({
     phaseNumber: completedPhase.phaseNumber,
     phaseType:   completedPhase.phaseType,
@@ -169,11 +202,9 @@ const advanceInvoicePhase = async (invoiceId, userId, completedPhase, status = '
     }
   }
 
-  // Advance to next phase
   const nextPhaseDate = calculateNextReminderDate(sequence, invoice, completedPhase.phaseNumber);
   invoice.nextReminderAt = nextPhaseDate;
 
-  // No more phases — sequence complete
   if (!nextPhaseDate) {
     logger.info(`Sequence completed for invoice ${invoiceId}`);
     await Sequence.findByIdAndUpdate(sequence._id, {
@@ -206,8 +237,18 @@ const initializeSequenceOnInvoice = async (invoiceId, sequenceId, userId) => {
     );
   }
 
-  const now     = new Date();
-  const nextPhase = getNextEligiblePhase(sequence, { ...invoice.toObject(), currentPhase: 0 }, now);
+  // BUG-06: fetch customer timezone for accurate first trigger date
+  const customer    = await Customer.findById(invoice.customerId).select('timezone').lean();
+  const timezone    = customer?.timezone || 'UTC';
+  const now         = new Date();
+
+  const invoiceForPhase = {
+    ...invoice.toObject(),
+    currentPhase: 0,
+    customerId:   { timezone },
+  };
+
+  const nextPhase = getNextEligiblePhase(sequence, invoiceForPhase, now);
   const nextDate  = nextPhase ? nextPhase.triggerDate : null;
 
   invoice.sequenceId         = sequenceId;
@@ -246,8 +287,8 @@ const pauseSequence = async (userId, invoiceId) => {
 // ── Resume sequence on invoice ────────────────────────────────────────────────
 
 const resumeSequence = async (userId, invoiceId) => {
-  const invoice  = await Invoice.findOne({ _id: invoiceId, userId });
-  if (!invoice)  throw new AppError('Invoice not found.', 404, 'INVOICE_NOT_FOUND');
+  const invoice = await Invoice.findOne({ _id: invoiceId, userId });
+  if (!invoice) throw new AppError('Invoice not found.', 404, 'INVOICE_NOT_FOUND');
 
   if (!invoice.sequenceId) {
     throw new AppError('No sequence assigned to this invoice.', 400, 'NO_SEQUENCE_ASSIGNED');
@@ -262,13 +303,18 @@ const resumeSequence = async (userId, invoiceId) => {
     throw new AppError('Assigned sequence not found.', 404, 'SEQUENCE_NOT_FOUND');
   }
 
-  // Recalculate next reminder date
+  // BUG-06: fetch customer timezone before recalculating trigger
+  const customer = await Customer.findById(invoice.customerId).select('timezone').lean();
+  const timezone = customer?.timezone || 'UTC';
+
+  const invoiceForPhase = {
+    ...invoice.toObject(),
+    currentPhase: invoice.currentPhase || 0,
+    customerId:   { timezone },
+  };
+
   const now       = new Date();
-  const nextPhase = getNextEligiblePhase(
-    sequence,
-    { ...invoice.toObject(), currentPhase: invoice.currentPhase || 0 },
-    now
-  );
+  const nextPhase = getNextEligiblePhase(sequence, invoiceForPhase, now);
 
   invoice.sequencePaused = false;
   invoice.nextReminderAt = nextPhase ? nextPhase.triggerDate : null;
@@ -309,18 +355,20 @@ const getReminderHistory = async (userId, invoiceId, { page = 1, limit = 20 } = 
 const getSequenceProgress = async (userId, invoiceId) => {
   const invoice = await Invoice.findOne({ _id: invoiceId, userId })
     .select('+reminderHistory')
-    .populate('sequenceId');
+    .populate('sequenceId')
+    .populate('customerId', 'timezone');  // BUG-06
 
   if (!invoice) throw new AppError('Invoice not found.', 404, 'INVOICE_NOT_FOUND');
 
   if (!invoice.sequenceId) {
     return {
-      hasSequence:   false,
-      invoice:       { id: invoice._id, invoiceNumber: invoice.invoiceNumber },
+      hasSequence: false,
+      invoice:     { id: invoice._id, invoiceNumber: invoice.invoiceNumber },
     };
   }
 
   const sequence     = invoice.sequenceId;
+  const timezone     = invoice.customerId?.timezone || 'UTC';
   const totalPhases  = sequence.phases.filter((p) => p.isEnabled).length;
   const currentPhase = invoice.currentPhase || 0;
 
@@ -330,19 +378,17 @@ const getSequenceProgress = async (userId, invoiceId) => {
     .map((phase) => {
       const triggerDate = calculateTriggerDate(
         invoice.dueDate,
-        phase.triggerRule.daysOffset
+        phase.triggerRule.daysOffset,
+        timezone                      // BUG-06
       );
-      const isCompleted = phase.phaseNumber <= currentPhase;
-      const isNext      = phase.phaseNumber === currentPhase + 1;
-
       return {
         phaseNumber:  phase.phaseNumber,
         phaseType:    phase.phaseType,
         reminderType: phase.reminderType,
         channels:     phase.channels,
         triggerDate,
-        isCompleted,
-        isNext,
+        isCompleted:  phase.phaseNumber <= currentPhase,
+        isNext:       phase.phaseNumber === currentPhase + 1,
         isEnabled:    phase.isEnabled,
       };
     });
@@ -352,20 +398,17 @@ const getSequenceProgress = async (userId, invoiceId) => {
     : 0;
 
   return {
-    hasSequence:      true,
-    isPaused:         invoice.sequencePaused || false,
+    hasSequence:        true,
+    isPaused:           invoice.sequencePaused || false,
     currentPhase,
     totalPhases,
     progressPercent,
-    remindersSent:    invoice.remindersSent,
-    lastReminderAt:   invoice.lastReminderAt,
-    nextReminderAt:   invoice.nextReminderAt,
+    remindersSent:      invoice.remindersSent,
+    lastReminderAt:     invoice.lastReminderAt,
+    nextReminderAt:     invoice.nextReminderAt,
     sequenceAssignedAt: invoice.sequenceAssignedAt,
     phases,
-    sequence: {
-      id:   sequence._id,
-      name: sequence.name,
-    },
+    sequence: { id: sequence._id, name: sequence.name },
     invoice: {
       id:            invoice._id,
       invoiceNumber: invoice.invoiceNumber,
@@ -397,8 +440,8 @@ const getInvoicesWithActiveSequences = async (userId, {
   const total = await Invoice.countDocuments(query);
 
   const invoices = await Invoice.find(query)
-    .populate('customerId',  'name email')
-    .populate('sequenceId',  'name isActive')
+    .populate('customerId', 'name email')
+    .populate('sequenceId', 'name isActive')
     .sort({ nextReminderAt: 1 })
     .skip(skip)
     .limit(limit)

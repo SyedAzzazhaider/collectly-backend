@@ -181,20 +181,33 @@ const validateRequestExport = (req, res, next) => {
 
 const validateUnsubscribe = (req, res, next) => {
   try {
-    const { token } = req.params;
-    const errors    = {};
+    const { customerId } = req.params;
+    const { token }      = req.query;
 
-    if (!token || typeof token !== 'string' || token.trim().length < 10) {
-      errors.token = 'Invalid unsubscribe token';
+    const errors = {};
+
+    // Validate customerId is a valid MongoDB ObjectId
+    if (!customerId || !/^[a-fA-F0-9]{24}$/.test(customerId)) {
+      errors.customerId = 'Invalid customer ID';
+    }
+
+    // Token is required — any non-empty string is accepted here.
+    // The service layer verifies the HMAC value — the validator only checks presence.
+    if (!token || typeof token !== 'string' || token.trim().length === 0) {
+      // Return 400 (not 422) for missing token — matches test expectations
+      const err = new AppError('Unsubscribe token is required.', 400, 'MISSING_TOKEN');
+      return next(err);
     }
 
     if (Object.keys(errors).length > 0) {
-      return next(validationError('Unsubscribe validation failed', errors));
+      const err = new AppError('Invalid unsubscribe request.', 400, 'VALIDATION_ERROR');
+      err.fields = errors;
+      return next(err);
     }
 
     next();
   } catch {
-    next(new AppError('Validation error', 422));
+    next(new AppError('Validation error', 400));
   }
 };
 

@@ -6,25 +6,22 @@ const Customer        = require('../../customers/models/Customer.model');
 const AppError        = require('../../../shared/errors/AppError');
 const logger          = require('../../../shared/utils/logger');
 
-// ── Generate installment schedule ─────────────────────────────────────────────
+// -- Generate installment schedule ---------------------------------------------
 
 const generateInstallments = (totalAmount, numberOfInstallments, frequency, startDate) => {
-  const installments  = [];
+  const installments   = [];
   const perInstallment = Math.floor((totalAmount / numberOfInstallments) * 100) / 100;
   let remainder        = Math.round((totalAmount - perInstallment * numberOfInstallments) * 100) / 100;
 
-  const frequencyDays = {
-    weekly:    7,
-    biweekly:  14,
-    monthly:   30,
-  };
-
-  const daysGap = frequencyDays[frequency] || 30;
-  let currentDate = new Date(startDate);
+  const frequencyDays = { weekly: 7, biweekly: 14, monthly: 30 };
+  const daysGap       = frequencyDays[frequency] || 30;
+  let currentDate     = new Date(startDate);
 
   for (let i = 1; i <= numberOfInstallments; i++) {
-    const isLast   = i === numberOfInstallments;
-    const amount   = isLast ? Math.round((perInstallment + remainder) * 100) / 100 : perInstallment;
+    const isLast = i === numberOfInstallments;
+    const amount = isLast
+      ? Math.round((perInstallment + remainder) * 100) / 100
+      : perInstallment;
 
     installments.push({
       installmentNumber: i,
@@ -40,8 +37,7 @@ const generateInstallments = (totalAmount, numberOfInstallments, frequency, star
   return installments;
 };
 
-// ── Create payment plan ───────────────────────────────────────────────────────
-// Document: Payment plan proposals
+// -- Create payment plan -------------------------------------------------------
 
 const createPaymentPlan = async (userId, data) => {
   const {
@@ -50,14 +46,10 @@ const createPaymentPlan = async (userId, data) => {
   } = data;
 
   const customer = await Customer.findOne({ _id: customerId, userId });
-  if (!customer) {
-    throw new AppError('Customer not found.', 404, 'CUSTOMER_NOT_FOUND');
-  }
+  if (!customer) throw new AppError('Customer not found.', 404, 'CUSTOMER_NOT_FOUND');
 
   const invoice = await Invoice.findOne({ _id: invoiceId, userId });
-  if (!invoice) {
-    throw new AppError('Invoice not found.', 404, 'INVOICE_NOT_FOUND');
-  }
+  if (!invoice) throw new AppError('Invoice not found.', 404, 'INVOICE_NOT_FOUND');
 
   if (['paid', 'cancelled'].includes(invoice.status)) {
     throw new AppError(
@@ -67,9 +59,9 @@ const createPaymentPlan = async (userId, data) => {
     );
   }
 
-  // Check for existing active plan
   const existingActive = await PaymentPlan.findOne({
-    userId, invoiceId,
+    userId,
+    invoiceId,
     status: { $in: ['proposed', 'accepted', 'active'] },
   });
 
@@ -109,7 +101,7 @@ const createPaymentPlan = async (userId, data) => {
   return plan;
 };
 
-// ── Get payment plans for user ────────────────────────────────────────────────
+// -- Get payment plans ---------------------------------------------------------
 
 const getPaymentPlans = async (userId, {
   page       = 1,
@@ -119,14 +111,12 @@ const getPaymentPlans = async (userId, {
   invoiceId  = null,
 } = {}) => {
   const query = { userId };
-
   if (status)     query.status     = status;
   if (customerId) query.customerId = customerId;
   if (invoiceId)  query.invoiceId  = invoiceId;
 
   const skip  = (page - 1) * limit;
   const total = await PaymentPlan.countDocuments(query);
-
   const plans = await PaymentPlan.find(query)
     .populate('customerId', 'name email company')
     .populate('invoiceId',  'invoiceNumber amount status')
@@ -141,27 +131,22 @@ const getPaymentPlans = async (userId, {
   };
 };
 
-// ── Get payment plan by ID ────────────────────────────────────────────────────
+// -- Get payment plan by ID ----------------------------------------------------
 
 const getPaymentPlanById = async (userId, planId) => {
   const plan = await PaymentPlan.findOne({ _id: planId, userId })
     .populate('customerId', 'name email company')
     .populate('invoiceId',  'invoiceNumber amount currency status');
 
-  if (!plan) {
-    throw new AppError('Payment plan not found.', 404, 'PAYMENT_PLAN_NOT_FOUND');
-  }
+  if (!plan) throw new AppError('Payment plan not found.', 404, 'PAYMENT_PLAN_NOT_FOUND');
   return plan;
 };
 
-// ── Accept payment plan ───────────────────────────────────────────────────────
-// Document: Customer accepts the proposed payment plan
+// -- Accept payment plan -------------------------------------------------------
 
 const acceptPaymentPlan = async (userId, planId) => {
   const plan = await PaymentPlan.findOne({ _id: planId, userId });
-  if (!plan) {
-    throw new AppError('Payment plan not found.', 404, 'PAYMENT_PLAN_NOT_FOUND');
-  }
+  if (!plan) throw new AppError('Payment plan not found.', 404, 'PAYMENT_PLAN_NOT_FOUND');
 
   if (plan.status !== 'proposed') {
     throw new AppError(
@@ -179,13 +164,11 @@ const acceptPaymentPlan = async (userId, planId) => {
   return plan;
 };
 
-// ── Reject payment plan ───────────────────────────────────────────────────────
+// -- Reject payment plan -------------------------------------------------------
 
 const rejectPaymentPlan = async (userId, planId, rejectionReason = null) => {
   const plan = await PaymentPlan.findOne({ _id: planId, userId });
-  if (!plan) {
-    throw new AppError('Payment plan not found.', 404, 'PAYMENT_PLAN_NOT_FOUND');
-  }
+  if (!plan) throw new AppError('Payment plan not found.', 404, 'PAYMENT_PLAN_NOT_FOUND');
 
   if (!['proposed', 'active'].includes(plan.status)) {
     throw new AppError(
@@ -204,79 +187,11 @@ const rejectPaymentPlan = async (userId, planId, rejectionReason = null) => {
   return plan;
 };
 
-// ── Record installment payment ────────────────────────────────────────────────
-// Document: Partial payment links — record payment against installment
-
-const recordInstallmentPayment = async (userId, planId, installmentNumber, paidAmount) => {
-  const plan = await PaymentPlan.findOne({ _id: planId, userId });
-  if (!plan) {
-    throw new AppError('Payment plan not found.', 404, 'PAYMENT_PLAN_NOT_FOUND');
-  }
-
-  if (!['active', 'proposed'].includes(plan.status)) {
-    throw new AppError(
-      `Cannot record payment on a ${plan.status} payment plan.`,
-      400,
-      'PAYMENT_PLAN_NOT_ACTIVE'
-    );
-  }
-
-  const installment = plan.installments.find(
-    (i) => i.installmentNumber === Number(installmentNumber)
-  );
-
-  if (!installment) {
-    throw new AppError(
-      `Installment ${installmentNumber} not found in this plan.`,
-      404,
-      'INSTALLMENT_NOT_FOUND'
-    );
-  }
-
-  if (installment.status === 'paid') {
-    throw new AppError('This installment has already been paid.', 400, 'INSTALLMENT_ALREADY_PAID');
-  }
-
-  const amount = Number(paidAmount);
-  if (isNaN(amount) || amount <= 0) {
-    throw new AppError('Paid amount must be greater than 0.', 400, 'INVALID_AMOUNT');
-  }
-
-  installment.paidAmount = Math.min(
-    installment.amount,
-    (installment.paidAmount || 0) + amount
-  );
-
-  installment.paidAt = new Date();
-  installment.status = installment.paidAmount >= installment.amount ? 'paid' : 'partial';
-
-  plan.amountPaid = Math.min(
-    plan.totalAmount,
-    plan.installments.reduce((sum, i) => sum + (i.paidAmount || 0), 0)
-  );
-
-  // Check if plan is completed
-  if (plan.amountPaid >= plan.totalAmount) {
-    plan.status      = 'completed';
-    plan.completedAt = new Date();
-    logger.info(`Payment plan completed: ${planId}`);
-  }
-
-  await plan.save();
-
-  logger.info(
-    `Installment ${installmentNumber} payment recorded: planId=${planId} amount=${amount}`
-  );
-  return plan;
-};
-
-// ── Cancel payment plan ───────────────────────────────────────────────────────
+// -- Cancel payment plan -------------------------------------------------------
 
 const cancelPaymentPlan = async (userId, planId) => {
   const plan = await PaymentPlan.findOne({ _id: planId, userId });
-  if (!plan) {
-    throw new AppError('Payment plan not found.', 404, 'PAYMENT_PLAN_NOT_FOUND');
-  }
+  if (!plan) throw new AppError('Payment plan not found.', 404, 'PAYMENT_PLAN_NOT_FOUND');
 
   if (['completed', 'rejected'].includes(plan.status)) {
     throw new AppError(
@@ -294,8 +209,66 @@ const cancelPaymentPlan = async (userId, planId) => {
   return plan;
 };
 
+// -- Record installment payment ------------------------------------------------
 
-// ── Generate Stripe Payment Link for an installment ───────────────────────────
+const recordInstallmentPayment = async (userId, planId, installmentId, paidAmount) => {
+  const plan = await PaymentPlan.findOne({ _id: planId, userId }).populate('invoiceId');
+  if (!plan) throw new AppError('Payment plan not found.', 404, 'PAYMENT_PLAN_NOT_FOUND');
+
+  if (['completed', 'defaulted', 'rejected'].includes(plan.status)) {
+    throw new AppError(
+      `Cannot record payment on a ${plan.status} plan.`,
+      400,
+      'PLAN_NOT_ACTIVE'
+    );
+  }
+
+  const installment = plan.installments.id(installmentId);
+  if (!installment) throw new AppError('Installment not found.', 404, 'INSTALLMENT_NOT_FOUND');
+  if (installment.status === 'paid') throw new AppError('Installment is already paid.', 400, 'INSTALLMENT_ALREADY_PAID');
+
+  const amount = Number(paidAmount);
+  if (!amount || amount <= 0) throw new AppError('Payment amount must be greater than 0.', 400, 'INVALID_AMOUNT');
+
+  installment.paidAmount = (installment.paidAmount || 0) + amount;
+  installment.paidAt     = new Date();
+  installment.status     = installment.paidAmount >= installment.amount ? 'paid' : 'partial';
+
+  plan.amountPaid = (plan.amountPaid || 0) + amount;
+
+  if (['proposed', 'accepted'].includes(plan.status)) {
+    plan.status = 'active';
+  }
+
+  const allPaid = plan.installments.every((i) => i.status === 'paid');
+  if (allPaid) {
+    plan.status      = 'completed';
+    plan.completedAt = new Date();
+  }
+
+  await plan.save();
+
+  try {
+    const invoiceService = require('../../customers/services/invoice.service');
+    await invoiceService.recordPayment(
+      userId,
+      String(plan.invoiceId._id || plan.invoiceId),
+      amount
+    );
+  } catch (invoiceErr) {
+    logger.warn(
+      `Installment recorded but invoice sync failed: planId=${planId} error=${invoiceErr.message}`
+    );
+  }
+
+  logger.info(
+    `Installment payment recorded: planId=${planId} installmentId=${installmentId} amount=${amount} userId=${userId}`
+  );
+
+  return plan;
+};
+
+// -- Generate Stripe payment link for an installment ---------------------------
 
 const generateStripePaymentLink = async (userId, planId, installmentNumber) => {
   const plan = await PaymentPlan.findOne({ _id: planId, userId });
@@ -304,12 +277,8 @@ const generateStripePaymentLink = async (userId, planId, installmentNumber) => {
   const installment = plan.installments.find(
     (i) => i.installmentNumber === installmentNumber
   );
-  if (!installment) {
-    throw new AppError('Installment not found.', 404, 'INSTALLMENT_NOT_FOUND');
-  }
-  if (installment.status === 'paid') {
-    throw new AppError('Installment already paid.', 400, 'ALREADY_PAID');
-  }
+  if (!installment) throw new AppError('Installment not found.', 404, 'INSTALLMENT_NOT_FOUND');
+  if (installment.status === 'paid') throw new AppError('Installment already paid.', 400, 'ALREADY_PAID');
 
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeKey || stripeKey.includes('your_')) {
@@ -323,9 +292,7 @@ const generateStripePaymentLink = async (userId, planId, installmentNumber) => {
   const price = await stripe.prices.create({
     currency,
     unit_amount:  amountCents,
-    product_data: {
-      name: `Payment Plan Installment #${installmentNumber}`,
-    },
+    product_data: { name: `Payment Plan Installment #${installmentNumber}` },
   });
 
   const paymentLink = await stripe.paymentLinks.create({
@@ -344,27 +311,20 @@ const generateStripePaymentLink = async (userId, planId, installmentNumber) => {
   installment.paymentLink = paymentLink.url;
   await plan.save({ validateBeforeSave: false });
 
-  logger.info(
-    `Stripe payment link generated: planId=${planId} installment=${installmentNumber}`
-  );
-
+  logger.info(`Stripe payment link generated: planId=${planId} installment=${installmentNumber}`);
   return { paymentLink: paymentLink.url, stripeId: paymentLink.id };
 };
 
-
-
-
-
-
+// -- Exports -------------------------------------------------------------------
 
 module.exports = {
+  generateInstallments,
   createPaymentPlan,
   getPaymentPlans,
   getPaymentPlanById,
   acceptPaymentPlan,
   rejectPaymentPlan,
-  recordInstallmentPayment,
   cancelPaymentPlan,
-  generateInstallments,
-  generateStripePaymentLink
+  recordInstallmentPayment,
+  generateStripePaymentLink,
 };

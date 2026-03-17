@@ -1,10 +1,11 @@
 'use strict';
-
 const Customer = require('../models/Customer.model');
 const Invoice  = require('../models/Invoice.model');
 const AppError = require('../../../shared/errors/AppError');
 const logger   = require('../../../shared/utils/logger');
 
+// BUG-09 FIX: Escape user input before using in MongoDB $regex to prevent ReDoS
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // ── Create customer ───────────────────────────────────────────────────────────
 
 const createCustomer = async (userId, data) => {
@@ -52,11 +53,13 @@ const getCustomers = async (userId, {
   const query = { userId };
 
   // Document: Search by customer name
+  // Document: Search by customer name
   if (search) {
+    const safe = escapeRegex(search.trim()); // BUG-09 FIX
     query.$or = [
-      { name:    { $regex: search, $options: 'i' } },
-      { email:   { $regex: search, $options: 'i' } },
-      { company: { $regex: search, $options: 'i' } },
+      { name:    { $regex: safe, $options: 'i' } },
+      { email:   { $regex: safe, $options: 'i' } },
+      { company: { $regex: safe, $options: 'i' } },
     ];
   }
 
@@ -149,7 +152,6 @@ const deleteCustomer = async (userId, customerId) => {
     throw new AppError('Customer not found.', 404, 'CUSTOMER_NOT_FOUND');
   }
 
-  // Check for outstanding invoices
   const outstanding = await Invoice.countDocuments({
     customerId,
     userId,
@@ -170,6 +172,7 @@ const deleteCustomer = async (userId, customerId) => {
   return { deleted: true, customerId };
 };
 
+
 // ── Get customer invoice summary ──────────────────────────────────────────────
 
 const getCustomerSummary = async (userId, customerId) => {
@@ -187,8 +190,8 @@ const getCustomerSummary = async (userId, customerId) => {
     overdue:   invoices.filter((i) => i.status === 'overdue').length,
     partial:   invoices.filter((i) => i.status === 'partial').length,
     cancelled: invoices.filter((i) => i.status === 'cancelled').length,
-    totalAmount:    invoices.reduce((s, i) => s + i.amount, 0),
-    totalPaid:      invoices.reduce((s, i) => s + i.amountPaid, 0),
+    totalAmount:      invoices.reduce((s, i) => s + i.amount, 0),
+    totalPaid:        invoices.reduce((s, i) => s + i.amountPaid, 0),
     totalOutstanding: invoices
       .filter((i) => !['paid', 'cancelled'].includes(i.status))
       .reduce((s, i) => s + (i.amount - i.amountPaid), 0),

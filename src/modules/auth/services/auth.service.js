@@ -2,8 +2,7 @@
 
 const User                   = require('../models/User.model');
 const { signAccessToken,
-        signRefreshToken,
-        verifyRefreshToken } = require('../../../shared/utils/jwt.util');
+        verifyAccessToken }  = require('../../../shared/utils/jwt.util');
 const { generateSecureToken,
         generateJti,
         generateRefreshTokenEntry,
@@ -32,7 +31,7 @@ const attachRefreshCookie = (res, token) => {
     secure:   process.env.NODE_ENV === 'production',
     sameSite: 'strict',
     maxAge:   COOKIE_MAX_AGE_MS,
-    // No path restriction � cookie sent on all /api/v1/auth/* requests
+    path:     '/api/v1/auth',           // SEC-03: restrict cookie to auth routes only
   });
 };
 
@@ -42,6 +41,7 @@ const clearRefreshCookie = (res) => {
     httpOnly: true,
     secure:   process.env.NODE_ENV === 'production',
     sameSite: 'strict',
+    path:     '/api/v1/auth',           // SEC-03: must match attachRefreshCookie path
   });
 };
 
@@ -59,10 +59,10 @@ const issueTokenPair = async (user, res, meta = {}) => {
     twoFactorVerified: meta.twoFactorVerified || false,
   };
 
-  const refreshPayload = { id: String(user._id), jti };
-
+  // BUG-01 FIX: signRefreshToken return value was previously discarded (dead code).
+  // The refresh flow uses opaque hashed tokens stored in DB — the JWT is not needed.
+  // Removed the dead signRefreshToken() call entirely.
   const accessToken = signAccessToken(accessPayload);
-  signRefreshToken(refreshPayload);
 
   const entry   = generateRefreshTokenEntry(
     plainRefresh,
@@ -94,6 +94,8 @@ const issueTokenPair = async (user, res, meta = {}) => {
 
 // -- Signup --------------------------------------------------------------------
 
+// -- Signup --------------------------------------------------------------------
+
 const signup = async ({ name, email, password }, res, meta = {}) => {
   const existing = await User.findOne({ email: email.toLowerCase() }).lean();
   if (existing) {
@@ -113,6 +115,13 @@ const signup = async ({ name, email, password }, res, meta = {}) => {
 
   const { accessToken } = await issueTokenPair(user, res, meta);
 
+  // FEAT-03 FIX: dispatch verification email automatically on signup.
+  // Fire-and-forget — email failure must never block account creation.
+  // If SendGrid is not yet configured, sendEmail() falls back to simulation mode.
+  sendVerificationEmail(user._id).catch((err) => {
+    logger.warn(`Verification email failed for ${user.email}: ${err.message}`);
+  });
+
   return {
     user: {
       id:               String(user._id),
@@ -121,6 +130,7 @@ const signup = async ({ name, email, password }, res, meta = {}) => {
       role:             user.role,
       subscriptionPlan: user.subscriptionPlan,
       twoFactorEnabled: user.twoFactorEnabled,
+      isEmailVerified:  user.isEmailVerified,
       createdAt:        user.createdAt,
     },
     accessToken,
@@ -165,12 +175,16 @@ const login = async ({ email, password }, res, meta = {}) => {
   await user.resetFailedLogin();
 
   if (user.twoFactorEnabled) {
+    // SEC-08 FIX: preAuthToken carries a restricted scope claim.
+    // The verify2FA controller validates this scope before trusting the token,
+    // preventing a user from completing 2FA by submitting an arbitrary userId.
     const preAuthToken = signAccessToken({
       id:                String(user._id),
       role:              user.role,
       subscriptionPlan:  user.subscriptionPlan,
       twoFactorEnabled:  true,
       twoFactorVerified: false,
+      scope:             'pre_2fa',     // SEC-08: purpose-limited token
     });
 
     logger.info(`2FA challenge issued: ${user.email}`);
@@ -201,13 +215,11 @@ const refreshTokens = async (plainRefreshToken, res, meta = {}) => {
   const hashedIncoming = hashToken(plainRefreshToken);
   const now            = new Date();
 
-  // Look up by hashed token value directly in DB
   const user = await User.findOne({
     'refreshTokens.token': hashedIncoming,
   }).select('+refreshTokens +isActive +lockedUntil +role +subscriptionPlan +twoFactorEnabled');
 
   if (!user) {
-    // Token not found at all � invalid or already rotated (possible reuse)
     clearRefreshCookie(res);
     throw new AppError(
       'Invalid or expired refresh token. Please log in again.',
@@ -225,8 +237,6 @@ const refreshTokens = async (plainRefreshToken, res, meta = {}) => {
   );
 
   if (sessionIndex === -1) {
-    // Token exists in DB but is expired � reuse attack detected
-    // Wipe ALL sessions to force re-authentication on every device
     logger.warn(`Reuse/expired token detected for ${user.email}. Wiping all sessions.`);
     user.refreshTokens = [];
     await user.save({ validateBeforeSave: false });
@@ -238,11 +248,9 @@ const refreshTokens = async (plainRefreshToken, res, meta = {}) => {
     );
   }
 
-  // Valid session � remove it before issuing new pair (single-use enforcement)
   user.refreshTokens.splice(sessionIndex, 1);
   await user.save({ validateBeforeSave: false });
 
-  // Issue new pair � adds a new session atomically
   const { accessToken } = await issueTokenPair(user, res, meta);
 
   logger.info(`Tokens rotated for user: ${user.email}`);
@@ -355,6 +363,7 @@ const disable2FA = async (userId, totpCode) => {
   if (!user.twoFactorEnabled) throw new AppError('2FA is not enabled.', 400, '2FA_NOT_ENABLED');
 
   const decryptedSecret = decrypt(user.twoFactorSecret);
+
   const isValid = speakeasy.totp.verify({
     secret:   decryptedSecret,
     encoding: 'base32',
@@ -440,20 +449,17 @@ const getMe = async (userId) => {
   return user;
 };
 
-
-// ── Change Password ───────────────────────────────────────────────────────────
+// -- Change Password -----------------------------------------------------------
 
 const changePassword = async (userId, currentPassword, newPassword) => {
   const user = await User.findById(userId).select('+password');
   if (!user) throw new AppError('User not found.', 404);
 
-  // Verify current password
   const isMatch = await user.comparePassword(currentPassword);
   if (!isMatch) {
     throw new AppError('Current password is incorrect.', 401, 'WRONG_CURRENT_PASSWORD');
   }
 
-  // Prevent reuse of same password
   if (currentPassword === newPassword) {
     throw new AppError(
       'New password must be different from your current password.',
@@ -462,11 +468,9 @@ const changePassword = async (userId, currentPassword, newPassword) => {
     );
   }
 
-  // Update password — pre-save hook hashes automatically
   user.password = newPassword;
   await user.save();
 
-  // Invalidate ALL refresh sessions — force re-login on every device
   const userDoc = await User.findById(userId).select('+refreshTokens');
   if (userDoc) {
     userDoc.refreshTokens = [];
@@ -476,13 +480,9 @@ const changePassword = async (userId, currentPassword, newPassword) => {
   logger.info(`Password changed for user: ${userId} — all sessions invalidated`);
 };
 
-
-
-// ── Forgot Password ───────────────────────────────────────────────────────────
+// -- Forgot Password -----------------------------------------------------------
 
 const forgotPassword = async (email) => {
-  // Always respond with the same message regardless of whether email exists.
-  // This prevents user enumeration attacks.
   const SAFE_RESPONSE = {
     message: 'If an account with that email exists, a password reset link has been sent.',
   };
@@ -492,20 +492,17 @@ const forgotPassword = async (email) => {
 
   if (!user || !user.isActive) return SAFE_RESPONSE;
 
-  // Block OAuth-only accounts — they have no password to reset
   if (user.oauthProvider !== 'local' && !user.password) {
     return SAFE_RESPONSE;
   }
 
-  // Generate plain token, store only the hash
   const plainToken  = generateSecureToken(32);
   const hashedToken = hashToken(plainToken);
 
   user.passwordResetToken   = hashedToken;
-  user.passwordResetExpires = generateExpiry(60); // 60-minute window
+  user.passwordResetExpires = generateExpiry(60);
   await user.save({ validateBeforeSave: false });
 
-  // Build reset URL for email body
   const resetUrl = `${process.env.FRONTEND_URL}/auth/reset-password/${plainToken}`;
 
   const emailService = require('../../notifications/services/email.service');
@@ -520,7 +517,7 @@ const forgotPassword = async (email) => {
   return SAFE_RESPONSE;
 };
 
-// ── Reset Password ────────────────────────────────────────────────────────────
+// -- Reset Password ------------------------------------------------------------
 
 const resetPassword = async (plainToken, newPassword, res) => {
   if (!plainToken || typeof plainToken !== 'string' || plainToken.length < 10) {
@@ -529,7 +526,6 @@ const resetPassword = async (plainToken, newPassword, res) => {
 
   const hashedToken = hashToken(plainToken);
 
-  // Find user with a matching, non-expired token
   const user = await User.findOne({
     passwordResetToken:   hashedToken,
     passwordResetExpires: { $gt: new Date() },
@@ -543,7 +539,6 @@ const resetPassword = async (plainToken, newPassword, res) => {
     );
   }
 
-  // Prevent reuse of the same password
   const isSame = await user.comparePassword(newPassword);
   if (isSame) {
     throw new AppError(
@@ -553,22 +548,19 @@ const resetPassword = async (plainToken, newPassword, res) => {
     );
   }
 
-  // Apply new password — pre-save hook hashes automatically
   user.password             = newPassword;
   user.passwordResetToken   = undefined;
   user.passwordResetExpires = undefined;
-  // Invalidate ALL existing refresh sessions — force re-login on every device
-  user.refreshTokens = [];
+  user.refreshTokens        = [];
   await user.save();
 
   logger.info(`Password reset completed for user: ${user.email} — all sessions invalidated`);
 
-  // Issue a fresh token pair so the user is immediately logged in after reset
   const { accessToken } = await issueTokenPair(user, res, {});
   return { accessToken };
 };
 
-// ── Send Verification Email ───────────────────────────────────────────────────
+// -- Send Verification Email ---------------------------------------------------
 
 const sendVerificationEmail = async (userId) => {
   const user = await User.findById(userId)
@@ -584,7 +576,7 @@ const sendVerificationEmail = async (userId) => {
   const hashedToken = hashToken(plainToken);
 
   user.emailVerifyToken   = hashedToken;
-  user.emailVerifyExpires = generateExpiry(24 * 60); // 24-hour window
+  user.emailVerifyExpires = generateExpiry(24 * 60);
   await user.save({ validateBeforeSave: false });
 
   const verifyUrl = `${process.env.FRONTEND_URL}/auth/verify-email/${plainToken}`;
@@ -600,7 +592,7 @@ const sendVerificationEmail = async (userId) => {
   logger.info(`Verification email dispatched: ${user.email}`);
 };
 
-// ── Verify Email ──────────────────────────────────────────────────────────────
+// -- Verify Email --------------------------------------------------------------
 
 const verifyEmail = async (plainToken) => {
   if (!plainToken || typeof plainToken !== 'string' || plainToken.length < 10) {
@@ -622,18 +614,13 @@ const verifyEmail = async (plainToken) => {
     );
   }
 
-  user.isEmailVerified  = true;
+  user.isEmailVerified    = true;
   user.emailVerifyToken   = undefined;
   user.emailVerifyExpires = undefined;
   await user.save({ validateBeforeSave: false });
 
   logger.info(`Email verified for user: ${user.email}`);
 };
-
-
-
-
-
 
 // -- Exports -------------------------------------------------------------------
 

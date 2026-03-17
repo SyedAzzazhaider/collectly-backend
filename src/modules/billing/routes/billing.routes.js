@@ -19,13 +19,14 @@ const {
 router.get('/plans', billingController.getPlans);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STRIPE WEBHOOK — raw body required, before express.json middleware
+// STRIPE WEBHOOK
+// BUG-02 FIX: Raw body is now captured by the verify callback in app.js
+// express.json(). Do NOT apply express.raw() here — the body would already
+// be consumed and this middleware would be skipped, breaking req.rawBody.
 // ─────────────────────────────────────────────────────────────────────────────
 
 router.post(
   '/webhook',
-  express.raw({ type: 'application/json' }),
-  (req, res, next) => { req.rawBody = req.body; next(); },
   validateWebhookSignature,
   billingController.stripeWebhook
 );

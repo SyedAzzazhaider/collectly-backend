@@ -35,8 +35,18 @@ app.use(cors({
 }));
 
 // ── Body parsing ──────────────────────────────────────────────────────────────
+// BUG-02 FIX: The verify callback captures the raw Buffer for the Stripe webhook
+// route BEFORE express.json parses it into a JS object.
+// billing.routes.js no longer needs express.raw() — this handles it globally.
 
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({
+  limit: '1mb',
+  verify: (req, _res, buf) => {
+    if (req.originalUrl === '/api/v1/billing/webhook') {
+      req.rawBody = buf;
+    }
+  },
+}));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(cookieParser());
 

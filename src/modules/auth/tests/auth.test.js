@@ -359,6 +359,14 @@ describe('2FA — setup, verify, disable', () => {
   let accessToken;
   const speakeasy = require('speakeasy');
 
+  // Helper function to set up 2FA and get secret
+  const setup2FAForUser = async (token) => {
+    const setupRes = await request(app)
+      .post('/api/v1/auth/2fa/setup')
+      .set('Authorization', `Bearer ${token}`);
+    return setupRes.body.data;
+  };
+
   beforeEach(async () => {
     await request(app).post('/api/v1/auth/signup').send(validUser);
     const res   = await request(app).post('/api/v1/auth/login').send(validLogin);
@@ -374,11 +382,13 @@ describe('2FA — setup, verify, disable', () => {
   });
 
   it('should enable 2FA after valid TOTP verification', async () => {
-    const setupRes = await request(app).post('/api/v1/auth/2fa/setup').set('Authorization', `Bearer ${accessToken}`);
-    const { secret } = setupRes.body.data;
+    const { secret } = await setup2FAForUser(accessToken);
     const totpCode   = speakeasy.totp({ secret, encoding: 'base32' });
-    const user       = await User.findOne({ email: validUser.email });
-    const verifyRes  = await request(app).post('/api/v1/auth/2fa/verify').send({ userId: String(user._id), totpCode });
+    // SEC-01 FIX: setup-verify uses Bearer token, not userId in body
+    const verifyRes  = await request(app)
+      .post('/api/v1/auth/2fa/verify')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ totpCode });
     expect(verifyRes.status).toBe(200);
     expect(verifyRes.body.data.accessToken).toBeDefined();
     const updated = await User.findOne({ email: validUser.email });
@@ -386,34 +396,49 @@ describe('2FA — setup, verify, disable', () => {
   });
 
   it('should reject 2FA verify with invalid TOTP code', async () => {
-    await request(app).post('/api/v1/auth/2fa/setup').set('Authorization', `Bearer ${accessToken}`);
-    const user = await User.findOne({ email: validUser.email });
-    const res  = await request(app).post('/api/v1/auth/2fa/verify').send({ userId: String(user._id), totpCode: '000000' });
+    await setup2FAForUser(accessToken);
+    const res = await request(app)
+      .post('/api/v1/auth/2fa/verify')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ totpCode: '000000' });
     expect(res.status).toBe(401);
     expect(res.body.code).toBe('INVALID_2FA_CODE');
   });
 
   it('should disable 2FA with valid TOTP code', async () => {
-    const setupRes = await request(app).post('/api/v1/auth/2fa/setup').set('Authorization', `Bearer ${accessToken}`);
-    const { secret } = setupRes.body.data;
-    const user       = await User.findOne({ email: validUser.email });
+    const { secret } = await setup2FAForUser(accessToken);
     const totpCode   = speakeasy.totp({ secret, encoding: 'base32' });
-    await request(app).post('/api/v1/auth/2fa/verify').send({ userId: String(user._id), totpCode });
-    const loginRes   = await request(app).post('/api/v1/auth/login').send(validLogin);
+    // Enable 2FA first using Bearer token
+    await request(app)
+      .post('/api/v1/auth/2fa/verify')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ totpCode });
+    
+    const loginRes = await request(app).post('/api/v1/auth/login').send(validLogin);
     expect(loginRes.body.data.requires2FA).toBe(true);
+    
     const disableCode = speakeasy.totp({ secret, encoding: 'base32' });
-    const newToken    = loginRes.body.data.preAuthToken;
-    const disableRes  = await request(app).post('/api/v1/auth/2fa/disable').set('Authorization', `Bearer ${newToken}`).send({ totpCode: disableCode });
-    expect([200, 403]).toContain(disableRes.status);
+    // Use preAuthToken from login response for the disable flow
+    const preAuthToken  = loginRes.body.data.preAuthToken;
+    const disableRes = await request(app)
+      .post('/api/v1/auth/2fa/disable')
+      .set('Authorization', `Bearer ${preAuthToken}`)
+      .send({ totpCode: disableCode });
+    expect(disableRes.status).toBe(200);
+    
+    const updated = await User.findOne({ email: validUser.email });
+    expect(updated.twoFactorEnabled).toBe(false);
   });
 
   it('should require 2FA code during login when 2FA is enabled', async () => {
-    const setupRes = await request(app).post('/api/v1/auth/2fa/setup').set('Authorization', `Bearer ${accessToken}`);
-    const { secret } = setupRes.body.data;
-    const user       = await User.findOne({ email: validUser.email });
+    const { secret } = await setup2FAForUser(accessToken);
     const totpCode   = speakeasy.totp({ secret, encoding: 'base32' });
-    await request(app).post('/api/v1/auth/2fa/verify').send({ userId: String(user._id), totpCode });
-    const loginRes   = await request(app).post('/api/v1/auth/login').send(validLogin);
+    await request(app)
+      .post('/api/v1/auth/2fa/verify')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ totpCode });
+    
+    const loginRes = await request(app).post('/api/v1/auth/login').send(validLogin);
     expect(loginRes.status).toBe(200);
     expect(loginRes.body.data.requires2FA).toBe(true);
     expect(loginRes.body.data.preAuthToken).toBeDefined();
@@ -421,12 +446,16 @@ describe('2FA — setup, verify, disable', () => {
   });
 
   it('should reject 2FA setup if already enabled', async () => {
-    const setupRes = await request(app).post('/api/v1/auth/2fa/setup').set('Authorization', `Bearer ${accessToken}`);
-    const { secret } = setupRes.body.data;
-    const user       = await User.findOne({ email: validUser.email });
+    const { secret } = await setup2FAForUser(accessToken);
     const totpCode   = speakeasy.totp({ secret, encoding: 'base32' });
-    await request(app).post('/api/v1/auth/2fa/verify').send({ userId: String(user._id), totpCode });
-    const again = await request(app).post('/api/v1/auth/2fa/setup').set('Authorization', `Bearer ${accessToken}`);
+    await request(app)
+      .post('/api/v1/auth/2fa/verify')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ totpCode });
+    
+    const again = await request(app)
+      .post('/api/v1/auth/2fa/setup')
+      .set('Authorization', `Bearer ${accessToken}`);
     expect(again.status).toBe(400);
     expect(again.body.code).toBe('2FA_ALREADY_ENABLED');
   });
@@ -562,9 +591,9 @@ describe('POST /api/v1/auth/reset-password/:token', () => {
       {
         passwordResetToken:   hashedToken,
         passwordResetExpires: generateExpiry(60),
-      },
-      { new: true }
-    );
+    },
+    { returnDocument: 'after' }
+  );
     return plainToken;
   };
 

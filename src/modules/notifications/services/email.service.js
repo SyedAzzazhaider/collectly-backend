@@ -17,7 +17,10 @@ const getSendGrid = () => {
   return _sgClient;
 };
 
+// Force simulation in test mode regardless of API key configuration.
+// This prevents real SendGrid calls during jest runs when a live key is present in .env.
 const isEmailEnabled = () => !!(
+  process.env.NODE_ENV !== 'test' &&
   process.env.SENDGRID_API_KEY &&
   !process.env.SENDGRID_API_KEY.includes('your_') &&
   process.env.SENDGRID_FROM_EMAIL
@@ -104,12 +107,21 @@ const stripHtml = (html) => {
 };
 
 // ── Wrap body in minimal professional HTML ────────────────────────────────────
-
+ 
+ // Wrap body in minimal professional HTML
 const wrapEmailHtml = (body, subject) => {
+  // BUG-08 FIX: escape subject to prevent XSS in HTML title/header
+  const safeSubject = (subject || '')
+    .replace(/&/g,  '&amp;')
+    .replace(/</g,  '&lt;')
+    .replace(/>/g,  '&gt;')
+    .replace(/"/g,  '&quot;')
+    .replace(/'/g,  '&#x27;');
+
   const safeBody = body
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
+    .replace(/&/g,  '&amp;')
+    .replace(/</g,  '&lt;')
+    .replace(/>/g,  '&gt;')
     .replace(/\n/g, '<br>');
 
   return `
@@ -118,7 +130,7 @@ const wrapEmailHtml = (body, subject) => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${subject}</title>
+  <title>${safeSubject}</title>
   <style>
     body { font-family: Arial, sans-serif; background: #f4f4f4; margin: 0; padding: 20px; }
     .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 32px; }

@@ -393,6 +393,11 @@ const buildDefaultSubject = (invoice, phaseType) => {
 // ── Process a single invoice reminder ─────────────────────────────────────────
 // Main dispatch function called by the scheduler
 
+
+// Process a single invoice reminder
+
+// ── Process a single invoice reminder ────────────────────────────────────────
+
 const processInvoiceReminder = async (invoice) => {
   try {
     const sequence = await Sequence.findById(invoice.sequenceId);
@@ -403,20 +408,15 @@ const processInvoiceReminder = async (invoice) => {
 
     const now       = new Date();
     const nextPhase = schedulerService.getNextEligiblePhase(sequence, invoice, now);
-
     if (!nextPhase || !nextPhase.isDue) {
       return { processed: false, reason: 'no_phase_due' };
     }
 
     const { phase } = nextPhase;
-
     let result;
 
-    // Document: Reminder Types — Immediate, Scheduled, Recurring
     switch (phase.reminderType) {
       case 'immediate':
-        result = await processScheduledReminder(invoice, phase, sequence);
-        break;
       case 'scheduled':
         result = await processScheduledReminder(invoice, phase, sequence);
         break;
@@ -434,6 +434,24 @@ const processInvoiceReminder = async (invoice) => {
         phase,
         'sent'
       );
+
+      // BUG-04 FIX: decrement billing credits for each channel actually used.
+      // Previously no credit consumption happened in the automated reminder path,
+      // allowing unlimited sends regardless of plan quota.
+      try {
+        const billingService = require('../../billing/services/billing.service');
+        for (const channel of (result.channels || [])) {
+          await billingService.incrementUsage(String(invoice.userId), channel).catch((err) => {
+            logger.warn(
+              `Billing increment skipped: channel=${channel} invoice=${invoice._id}: ${err.message}`
+            );
+          });
+        }
+      } catch (billingErr) {
+        logger.warn(
+          `Billing usage block failed for invoice ${invoice._id}: ${billingErr.message}`
+        );
+      }
     }
 
     return { processed: result.dispatched, phase: phase.phaseNumber, result };
@@ -442,6 +460,8 @@ const processInvoiceReminder = async (invoice) => {
     return { processed: false, reason: 'error', error: err.message };
   }
 };
+
+
 
 // ── Run the scheduled batch ───────────────────────────────────────────────────
 // Called periodically — processes all invoices due for reminders

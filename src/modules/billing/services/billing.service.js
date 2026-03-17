@@ -84,29 +84,41 @@ const getBilling = async (userId) => {
 
 // ── Initialize billing record ─────────────────────────────────────────────────
 
-const initializeBilling = async (userId) => {
-  const existing = await Billing.findOne({ userId });
-  if (existing) return existing;
+// ── Initialize billing record ─────────────────────────────────────────────────
 
+const initializeBilling = async (userId) => {
   const { periodStart, periodEnd } = buildPeriodDates();
 
-  const billing = await Billing.create({
-    userId,
-    plan:     'starter',
-    status:   'inactive',
-    amount:   0,
-    currency: 'usd',
-    usage: {
-      creditsUsed:  0,
-      emailsSent:   0,
-      smsSent:      0,
-      whatsappSent: 0,
-      periodStart,
-      periodEnd,
+  // QUALITY-04 FIX: use findOneAndUpdate with upsert to eliminate race condition.
+  // Two simultaneous signup requests could both call User.create then both call
+  // initializeBilling — the second would hit the unique userId index and throw 11000.
+  const billing = await Billing.findOneAndUpdate(
+    { userId },
+    {
+      $setOnInsert: {
+        userId,
+        plan:     'starter',
+        status:   'inactive',
+        amount:   0,
+        currency: 'usd',
+        usage: {
+          creditsUsed:  0,
+          emailsSent:   0,
+          smsSent:      0,
+          whatsappSent: 0,
+          periodStart,
+          periodEnd,
+        },
+      },
     },
-  });
+    {
+      upsert:         true,
+      new:            true,
+      setDefaultsOnInsert: true,
+    }
+  );
 
-  logger.info(`Billing record initialized for user: ${userId}`);
+  logger.info(`Billing record ensured for user: ${userId}`);
   return billing;
 };
 

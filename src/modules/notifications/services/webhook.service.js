@@ -2,11 +2,20 @@
 
 const https  = require('https');
 const http   = require('http');
+const crypto = require('crypto');
 const logger = require('../../../shared/utils/logger');
 
+// SEC-04 FIX: HMAC-SHA256 signature on all outgoing webhook payloads
+// Receivers verify authenticity via the X-Collectly-Signature header
+const computeWebhookSignature = (payload) => {
+  const secret = process.env.WEBHOOK_SIGNING_SECRET || process.env.JWT_ACCESS_SECRET;
+  return 'sha256=' + crypto
+    .createHmac('sha256', secret)
+    .update(payload)
+    .digest('hex');
+};
+
 // ── Send webhook notification ─────────────────────────────────────────────────
-// Delivers notification payload via HTTP POST to a customer-configured URL.
-// Spec: Webhook channel — user systems receive event-driven payloads.
 
 const sendWebhook = async ({ webhookUrl, body, metadata = {} }) => {
   const startTime = Date.now();
@@ -35,40 +44,47 @@ const sendWebhook = async ({ webhookUrl, body, metadata = {} }) => {
     };
   }
 
+  // SEC-05 FIX: block plaintext HTTP in production — all webhooks must use HTTPS
+  if (process.env.NODE_ENV === 'production' && url.protocol !== 'https:') {
+    logger.warn(`Webhook blocked — HTTP not allowed in production: ${webhookUrl}`);
+    return {
+      success:      false,
+      errorCode:    'HTTPS_REQUIRED',
+      errorMessage: 'Webhook URL must use HTTPS in production.',
+      durationMs:   Date.now() - startTime,
+      provider:     'webhook',
+    };
+  }
+
   const payload = JSON.stringify({
     event:     'collectly.notification',
     timestamp: new Date().toISOString(),
-    data: {
-      body,
-      ...metadata,
-    },
+    data:      { body, ...metadata },
   });
 
   return new Promise((resolve) => {
     const transport = url.protocol === 'https:' ? https : http;
-
-    const options = {
+    const options   = {
       hostname: url.hostname,
       port:     url.port || (url.protocol === 'https:' ? 443 : 80),
       path:     url.pathname + url.search,
       method:   'POST',
       headers: {
-        'Content-Type':   'application/json',
-        'Content-Length': Buffer.byteLength(payload),
-        'User-Agent':     'Collectly-Webhook/1.0',
-        'X-Collectly-Event': 'notification',
+        'Content-Type':          'application/json',
+        'Content-Length':        Buffer.byteLength(payload),
+        'User-Agent':            'Collectly-Webhook/1.0',
+        'X-Collectly-Event':     'notification',
+        'X-Collectly-Signature': computeWebhookSignature(payload), // SEC-04
       },
-      timeout: 10000, // 10 second timeout
+      timeout: 10000,
     };
 
     const req = transport.request(options, (res) => {
       const duration = Date.now() - startTime;
       const success  = res.statusCode >= 200 && res.statusCode < 300;
-
       logger.info(
         `Webhook delivered: url=${webhookUrl} status=${res.statusCode} duration=${duration}ms`
       );
-
       resolve({
         success,
         simulated:         false,
@@ -85,11 +101,10 @@ const sendWebhook = async ({ webhookUrl, body, metadata = {} }) => {
 
     req.on('timeout', () => {
       req.destroy();
-      const duration = Date.now() - startTime;
-      logger.warn(`Webhook timed out: url=${webhookUrl} duration=${duration}ms`);
+      logger.warn(`Webhook timed out: url=${webhookUrl}`);
       resolve({
         success:      false,
-        durationMs:   duration,
+        durationMs:   Date.now() - startTime,
         provider:     'webhook',
         errorCode:    'TIMEOUT',
         errorMessage: 'Webhook request timed out after 10 seconds',
@@ -97,11 +112,10 @@ const sendWebhook = async ({ webhookUrl, body, metadata = {} }) => {
     });
 
     req.on('error', (err) => {
-      const duration = Date.now() - startTime;
       logger.error(`Webhook error: url=${webhookUrl} error=${err.message}`);
       resolve({
         success:      false,
-        durationMs:   duration,
+        durationMs:   Date.now() - startTime,
         provider:     'webhook',
         errorCode:    'REQUEST_ERROR',
         errorMessage: err.message,

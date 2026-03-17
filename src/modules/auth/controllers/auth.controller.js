@@ -167,25 +167,43 @@ const setup2FA = async (req, res, next) => {
 
 // ── 2FA Verify ────────────────────────────────────────────────────────────────
 
+
+// 2FA Verify
 const verify2FA = async (req, res, next) => {
   try {
-    const { totpCode } = req.body;
-    const meta         = extractMeta(req);
+    const { totpCode, preAuthToken } = req.body;
+    const meta = extractMeta(req);
 
-    // userId can come from protect middleware (disable flow)
-    // or from preAuthToken userId in body (login 2FA flow)
-    const userId = req.user?.id || req.body?.userId;
+    // Disable flow: user is fully authenticated
+    let userId = req.user?.id;
+
+    if (!userId) {
+      // Login 2FA flow — userId MUST come from the signed preAuthToken, never from req.body
+      if (!preAuthToken || typeof preAuthToken !== 'string') {
+        return next(new AppError('Pre-authentication token is required.', 400, 'MISSING_PRE_AUTH_TOKEN'));
+      }
+      let decoded;
+      try {
+        const { verifyAccessToken } = require('../../../shared/utils/jwt.util');
+        decoded = verifyAccessToken(preAuthToken);
+      } catch {
+        return next(new AppError('Invalid or expired pre-authentication token.', 401, 'INVALID_PRE_AUTH_TOKEN'));
+      }
+      // Enforce that this token is specifically a pre-2FA token
+      if (decoded.scope !== 'pre_2fa' || decoded.twoFactorVerified !== false) {
+        return next(new AppError('Invalid pre-authentication token.', 400, 'INVALID_PRE_AUTH_TOKEN'));
+      }
+      userId = decoded.id;
+    }
 
     if (!userId) {
       return next(new AppError('User identification required.', 400, 'MISSING_USER_ID'));
     }
-
     if (!totpCode) {
       return next(new AppError('TOTP code is required.', 400, 'MISSING_TOTP'));
     }
 
     const result = await authService.verify2FA(userId, totpCode, res, meta);
-
     sendSuccess(res, 200, '2FA verified successfully.', {
       accessToken: result.accessToken,
     });
@@ -193,6 +211,9 @@ const verify2FA = async (req, res, next) => {
     next(err);
   }
 };
+
+
+
 
 // ── 2FA Disable ───────────────────────────────────────────────────────────────
 

@@ -197,45 +197,11 @@ const duplicateSequence = async (userId, sequenceId) => {
 
 // ── Assign sequence to invoice ────────────────────────────────────────────────
 
+// Assign sequence to invoice
+// BUG-10 FIX: Delegates to scheduler service for consistent phase/nextReminderAt initialization
 const assignSequenceToInvoice = async (userId, sequenceId, invoiceId) => {
-  // Verify sequence belongs to user
-  const sequence = await Sequence.findOne({ _id: sequenceId, userId });
-  if (!sequence) {
-    throw new AppError('Sequence not found.', 404, 'SEQUENCE_NOT_FOUND');
-  }
-
-  if (!sequence.isActive) {
-    throw new AppError('Cannot assign an inactive sequence.', 400, 'SEQUENCE_INACTIVE');
-  }
-
-  // Verify invoice belongs to user
-  const invoice = await Invoice.findOne({ _id: invoiceId, userId });
-  if (!invoice) {
-    throw new AppError('Invoice not found.', 404, 'INVOICE_NOT_FOUND');
-  }
-
-  if (['paid', 'cancelled'].includes(invoice.status)) {
-    throw new AppError(
-      `Cannot assign a sequence to a ${invoice.status} invoice.`,
-      400,
-      'INVOICE_NOT_ELIGIBLE'
-    );
-  }
-
-  // Update invoice with sequence reference
-  invoice.set('sequenceId',         sequenceId);
-  invoice.set('sequenceAssignedAt', new Date());
-  invoice.set('currentPhase',       1);
-  invoice.set('remindersSent',      0);
-  await invoice.save({ validateBeforeSave: false });
-
-  // Increment active invoice count on sequence
-  await Sequence.findByIdAndUpdate(sequenceId, {
-    $inc: { activeInvoiceCount: 1 },
-  });
-
-  logger.info(`Sequence ${sequenceId} assigned to invoice ${invoiceId} by user ${userId}`);
-  return { sequence, invoice };
+  const schedulerService = require('./scheduler.service');
+  return schedulerService.initializeSequenceOnInvoice(invoiceId, sequenceId, userId);
 };
 
 // ── Unassign sequence from invoice ────────────────────────────────────────────

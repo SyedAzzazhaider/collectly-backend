@@ -6,7 +6,11 @@ const AppError = require('../../../shared/errors/AppError');
 const logger   = require('../../../shared/utils/logger');
 const alertService = require('../../alerts/services/alert.service');
 
-// â”€â”€ Create invoice â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// BUG-09 FIX: escape user-supplied strings before using in MongoDB $regex
+// to prevent ReDoS (catastrophic backtracking) attacks.
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// ── Create invoice ────────────────────────────────────────────────────────────
 
 const createInvoice = async (userId, data) => {
   const {
@@ -14,13 +18,11 @@ const createInvoice = async (userId, data) => {
     dueDate, issueDate, tags, notes, attachments,
   } = data;
 
-  // Verify customer belongs to this user
   const customer = await Customer.findOne({ _id: customerId, userId });
   if (!customer) {
     throw new AppError('Customer not found.', 404, 'CUSTOMER_NOT_FOUND');
   }
 
-  // Enforce unique invoice number per user
   const existing = await Invoice.findOne({ userId, invoiceNumber });
   if (existing) {
     throw new AppError(
@@ -48,40 +50,35 @@ const createInvoice = async (userId, data) => {
   return invoice;
 };
 
-// â”€â”€ Get all invoices (with filters) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Get all invoices (with filters) ──────────────────────────────────────────
 
 const getInvoices = async (userId, {
-  page       = 1,
-  limit      = 20,
-  status     = null,
-  customerId = null,
-  search     = null,
-  tags       = null,
+  page        = 1,
+  limit       = 20,
+  status      = null,
+  customerId  = null,
+  search      = null,
+  tags        = null,
   dueDateFrom = null,
   dueDateTo   = null,
 } = {}) => {
   const query = { userId };
 
-  // Document: Filter by status
   if (status)     query.status     = status;
-
-  // Document: Filter by customer
   if (customerId) query.customerId = customerId;
 
-  // Document: Search by invoice number
   if (search) {
-    query.$or = [
-      { invoiceNumber: { $regex: search, $options: 'i' } },
+    const safe  = escapeRegex(search.trim()); // BUG-09 FIX
+    query.$or   = [
+      { invoiceNumber: { $regex: safe, $options: 'i' } },
     ];
   }
 
-  // Document: Filter by tags
   if (tags) {
     const tagArray = Array.isArray(tags) ? tags : [tags];
     query.tags     = { $in: tagArray };
   }
 
-  // Document: Filter by due date range
   if (dueDateFrom || dueDateTo) {
     query.dueDate = {};
     if (dueDateFrom) query.dueDate.$gte = new Date(dueDateFrom);
@@ -100,16 +97,11 @@ const getInvoices = async (userId, {
 
   return {
     invoices,
-    pagination: {
-      total,
-      page,
-      limit,
-      pages: Math.ceil(total / limit),
-    },
+    pagination: { total, page, limit, pages: Math.ceil(total / limit) },
   };
 };
 
-// â”€â”€ Get single invoice â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Get single invoice ────────────────────────────────────────────────────────
 
 const getInvoiceById = async (userId, invoiceId) => {
   const invoice = await Invoice.findOne({ _id: invoiceId, userId })
@@ -122,7 +114,7 @@ const getInvoiceById = async (userId, invoiceId) => {
   return invoice;
 };
 
-// â”€â”€ Update invoice â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Update invoice ────────────────────────────────────────────────────────────
 
 const updateInvoice = async (userId, invoiceId, data) => {
   const invoice = await Invoice.findOne({ _id: invoiceId, userId });
@@ -138,7 +130,6 @@ const updateInvoice = async (userId, invoiceId, data) => {
     );
   }
 
-  // Prevent changing invoice number to a duplicate
   if (data.invoiceNumber && data.invoiceNumber !== invoice.invoiceNumber) {
     const duplicate = await Invoice.findOne({
       userId,
@@ -150,9 +141,12 @@ const updateInvoice = async (userId, invoiceId, data) => {
     }
   }
 
+  // SEC-07 FIX: 'status' is intentionally excluded from allowed fields.
+  // Direct status overrides bypass amountPaid reconciliation and the audit trail.
+  // Use recordPayment() to transition status through legitimate payment recording.
   const allowedFields = [
     'invoiceNumber', 'amount', 'currency', 'dueDate',
-    'issueDate', 'status', 'tags', 'notes', 'attachments',
+    'issueDate', 'tags', 'notes', 'attachments',
   ];
 
   allowedFields.forEach((field) => {
@@ -167,7 +161,7 @@ const updateInvoice = async (userId, invoiceId, data) => {
   return invoice;
 };
 
-// â”€â”€ Delete invoice â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Delete invoice ────────────────────────────────────────────────────────────
 
 const deleteInvoice = async (userId, invoiceId) => {
   const invoice = await Invoice.findOne({ _id: invoiceId, userId });
@@ -185,7 +179,7 @@ const deleteInvoice = async (userId, invoiceId) => {
   return { deleted: true, invoiceId };
 };
 
-// â”€â”€ Record partial or full payment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Record partial or full payment ────────────────────────────────────────────
 
 const recordPayment = async (userId, invoiceId, paymentAmount) => {
   const invoice = await Invoice.findOne({ _id: invoiceId, userId });
@@ -212,10 +206,40 @@ const recordPayment = async (userId, invoiceId, paymentAmount) => {
   }
 
   invoice.amountPaid = newAmountPaid;
-  // Status auto-updated by pre-save hook
+  // Status and paidAt auto-updated by pre-save hook
   await invoice.save();
 
   logger.info(`Payment recorded: invoice=${invoiceId} amount=${paymentAmount} user=${userId}`);
+
+  // BUG-11 FIX: When invoice transitions to 'paid', clean up its sequence assignment.
+  // Without this, Sequence.activeInvoiceCount stays inflated permanently,
+  // eventually blocking sequence deletion with false SEQUENCE_HAS_ACTIVE_INVOICES errors.
+  if (invoice.status === 'paid' && invoice.sequenceId) {
+    try {
+      const { Sequence } = require('../../sequences/models/Sequence.model');
+
+      await Sequence.findByIdAndUpdate(invoice.sequenceId, {
+        $inc: { activeInvoiceCount: -1 },
+      });
+
+      // Clear sequence fields — paid invoices no longer need reminder scheduling
+      await Invoice.findByIdAndUpdate(invoiceId, {
+        $set: {
+          sequenceId:         null,
+          sequenceAssignedAt: null,
+          nextReminderAt:     null,
+          sequencePaused:     false,
+        },
+      });
+
+      logger.info(`Sequence assignment cleared for paid invoice ${invoiceId}`);
+    } catch (seqErr) {
+      // Non-fatal: log and continue — payment was already saved successfully
+      logger.warn(
+        `Failed to update sequence count for paid invoice ${invoiceId}: ${seqErr.message}`
+      );
+    }
+  }
 
   // Module I — fire-and-forget alert (never blocks payment recording)
   alertService.triggerPaymentReceived(userId, { invoice, amount: paymentAmount }).catch(() => {});
@@ -223,7 +247,7 @@ const recordPayment = async (userId, invoiceId, paymentAmount) => {
   return invoice;
 };
 
-// â”€â”€ Mark invoice as overdue (called by scheduler) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Mark overdue invoices (called by scheduler) ───────────────────────────────
 
 const markOverdueInvoices = async () => {
   const result = await Invoice.updateMany(
@@ -238,7 +262,7 @@ const markOverdueInvoices = async () => {
   return result.modifiedCount;
 };
 
-// â”€â”€ Get overdue invoices (for agent dashboard) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Get overdue invoices (for agent dashboard) ────────────────────────────────
 
 const getOverdueInvoices = async (userId, { page = 1, limit = 20 } = {}) => {
   const query = { userId, status: 'overdue' };
@@ -258,7 +282,7 @@ const getOverdueInvoices = async (userId, { page = 1, limit = 20 } = {}) => {
   };
 };
 
-// â”€â”€ Add attachment to invoice â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Add attachment to invoice ─────────────────────────────────────────────────
 
 const addAttachment = async (userId, invoiceId, fileData) => {
   const invoice = await Invoice.findOne({ _id: invoiceId, userId });
@@ -272,9 +296,8 @@ const addAttachment = async (userId, invoiceId, fileData) => {
     throw new AppError('Maximum 10 attachments allowed per invoice.', 400, 'ATTACHMENT_LIMIT_REACHED');
   }
 
-  // S3 upload stores URL in fileData.location (multer-s3)
-  // Memory fallback stores original buffer â€” URL will be empty
   const attachmentUrl = fileData.key || '';
+
   invoice.attachments.push({
     filename:  fileData.originalname,
     url:       attachmentUrl,
@@ -283,11 +306,12 @@ const addAttachment = async (userId, invoiceId, fileData) => {
   });
 
   await invoice.save({ validateBeforeSave: false });
+
   logger.info(`Attachment added to invoice ${invoiceId} by user ${userId}`);
   return invoice;
 };
 
-// â”€â”€ Remove attachment from invoice â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Remove attachment from invoice ───────────────────────────────────────────
 
 const removeAttachment = async (userId, invoiceId, attachmentIndex) => {
   const { deleteFromS3 } = require('../../../shared/utils/s3.util');
@@ -306,7 +330,6 @@ const removeAttachment = async (userId, invoiceId, attachmentIndex) => {
 
   const attachment = invoice.attachments[idx];
 
-  // Delete from S3 if URL is an S3 key
   if (attachment.url && attachment.url.startsWith('attachments/')) {
     await deleteFromS3(attachment.url);
   }

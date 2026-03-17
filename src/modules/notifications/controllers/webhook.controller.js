@@ -6,24 +6,35 @@ const logger             = require('../../../shared/utils/logger');
 
 // ── Verify SendGrid webhook signature ─────────────────────────────────────────
 
+// Verify SendGrid webhook signature
+
+// Verify SendGrid webhook signature
 const verifySendGridSignature = (req) => {
   const key = process.env.SENDGRID_WEBHOOK_VERIFY_KEY;
-  if (!key) return true; // Skip verification if key not configured
+  if (!key) return true; // skip verification when key not configured
 
-  const signature  = req.headers['x-twilio-email-event-webhook-signature'];
-  const timestamp  = req.headers['x-twilio-email-event-webhook-timestamp'];
+  const signature = req.headers['x-twilio-email-event-webhook-signature'];
+  const timestamp = req.headers['x-twilio-email-event-webhook-timestamp'];
   if (!signature || !timestamp) return false;
 
-  const payload  = timestamp + JSON.stringify(req.body);
-  const expected = crypto
-    .createHmac('sha256', key)
-    .update(payload)
-    .digest('base64');
+  try {
+    const payload  = timestamp + JSON.stringify(req.body);
+    const expected = crypto
+      .createHmac('sha256', key)
+      .update(payload)
+      .digest('base64');
 
-  return crypto.timingSafeEqual(
-    Buffer.from(signature),
-    Buffer.from(expected)
-  );
+    const sigBuf = Buffer.from(signature, 'base64');
+    const expBuf = Buffer.from(expected,  'base64');
+
+    // BUG-03 FIX: timingSafeEqual throws RangeError when buffer lengths differ.
+    // Guard with explicit length check before calling it.
+    if (sigBuf.length !== expBuf.length) return false;
+
+    return crypto.timingSafeEqual(sigBuf, expBuf);
+  } catch {
+    return false;
+  }
 };
 
 // ── Process SendGrid event ────────────────────────────────────────────────────

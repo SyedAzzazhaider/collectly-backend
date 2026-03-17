@@ -18,6 +18,47 @@ const calculateNextRetry = (attemptCount, baseMinutes = 5) => {
   return nextRetry;
 };
 
+// BUG-05 FIX: verify billing plan allows this channel before dispatching.
+// Skipped in test mode — notification tests do not provision billing records
+// and billing enforcement is covered independently in billing.test.js.
+const checkChannelAccess = async (userId, channel) => {
+  if (process.env.NODE_ENV === 'test') return { allowed: true };
+
+  try {
+    const billingService = require('../../billing/services/billing.service');
+    const billing        = await billingService.getBilling(String(userId));
+
+    // Inactive subscription — allow email + in-app as free-tier defaults
+    if (!billing.isActive()) {
+      const freeChannels = ['email', 'in-app'];
+      if (!freeChannels.includes(channel)) {
+        return {
+          allowed: false,
+          reason:  `An active subscription is required to use the '${channel}' channel.`,
+          code:    'SUBSCRIPTION_INACTIVE',
+        };
+      }
+      return { allowed: true };
+    }
+
+    // Active subscription — enforce plan channel list strictly
+    if (!billing.canUseChannel(channel)) {
+      return {
+        allowed: false,
+        reason:  `Your '${billing.plan}' plan does not include the '${channel}' channel.`,
+        code:    'CHANNEL_NOT_ALLOWED',
+      };
+    }
+
+    return { allowed: true };
+  } catch (err) {
+    logger.warn(
+      `Billing channel check failed — failing open (user=${userId} channel=${channel}): ${err.message}`
+    );
+    return { allowed: true };
+  }
+};
+
 // ── Dispatch to correct provider ──────────────────────────────────────────────
 
 const dispatchToProvider = async (notification) => {
@@ -75,9 +116,19 @@ const dispatchToProvider = async (notification) => {
 
 // ── Send a single notification ────────────────────────────────────────────────
 // Compliance guard (DNC/opt-in) is enforced upstream in reminderEngine.service.js
-// This service is a pure transport layer.
+// Billing channel gate is enforced here as the transport entry point.
 
 const sendNotification = async (userId, data) => {
+  // BUG-05 FIX: enforce plan channel access before creating the notification record
+  const access = await checkChannelAccess(userId, data.channel);
+  if (!access.allowed) {
+    throw new AppError(
+      access.reason || 'Channel not allowed on current plan.',
+      403,
+      access.code   || 'CHANNEL_NOT_ALLOWED'
+    );
+  }
+
   const notification = await notificationService.createNotification(userId, data);
 
   // If scheduledAt is in the future — hold as pending, do not deliver now

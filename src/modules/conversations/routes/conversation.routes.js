@@ -204,6 +204,7 @@ router.post(
 
 /**
  * POST /api/v1/conversations/payment-plans/:id/installments/:number/pay
+ * Legacy route - kept for backward compatibility
  */
 router.post(
   '/payment-plans/:id/installments/:number/pay',
@@ -211,12 +212,26 @@ router.post(
   paymentPlanController.recordPayment
 );
 
+/**
+ * POST /api/v1/conversations/payment-plans/:planId/installments/:installmentId/pay
+ * FIX: Added missing route for installment payments
+ * This route uses the new controller method with proper parameter naming
+ * Records payment against a specific installment and automatically completes plan when fully paid
+ */
+router.post(
+  '/payment-plans/:planId/installments/:installmentId/pay',
+  restrictTo('owner', 'admin', 'agent'),
+  paymentPlanController.recordInstallmentPayment
+);
 
+/**
+ * POST /api/v1/conversations/payment-plans/:id/installments/:installmentNumber/payment-link
+ * Generate Stripe payment link for an installment
+ */
 router.post(
   '/payment-plans/:id/installments/:installmentNumber/payment-link',
   restrictTo('owner', 'admin', 'agent'),
   paymentPlanController.generatePaymentLink
 );
-
 
 module.exports = router;
