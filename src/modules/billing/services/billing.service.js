@@ -45,8 +45,10 @@ const getOrCreateStripeCustomer = async (user, billing) => {
 // ── Helper: attach test payment method when none exists ────────────────────────
 // Required in test mode because Stripe subscriptions need a payment method.
 // Uses Stripe's built-in tok_visa test token — never runs in production.
+
 const ensureTestPaymentMethod = async (stripe, customerId) => {
-  if (process.env.NODE_ENV === 'production') return;
+  const stripeKey = process.env.STRIPE_SECRET_KEY || '';
+  if (!stripeKey.startsWith('sk_test_')) return;
 
   try {
     const existing = await stripe.paymentMethods.list({
@@ -54,7 +56,7 @@ const ensureTestPaymentMethod = async (stripe, customerId) => {
       type:     'card',
     });
 
-    if (existing.data.length > 0) return; // already has a payment method
+    if (existing.data.length > 0) return;
 
     const pm = await stripe.paymentMethods.create({
       type: 'card',
@@ -72,6 +74,8 @@ const ensureTestPaymentMethod = async (stripe, customerId) => {
     logger.warn(`Could not attach test payment method: ${err.message}`);
   }
 };
+
+
 
 // ── Helper: resolve Stripe price ID ───────────────────────────────────────────
 const getStripePriceId = (plan) => {
