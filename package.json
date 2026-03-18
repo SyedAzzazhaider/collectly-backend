@@ -52,7 +52,6 @@
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "passport-microsoft": "^2.1.0",
-    "plivo": "^4.75.7",
     "qrcode": "^1.5.4",
     "speakeasy": "^2.0.0",
     "stripe": "^20.4.1",
