@@ -20,8 +20,7 @@ const oauthRoutes   = require('./src/modules/auth/routes/oauth.routes');
 const billingRoutes = require('./src/modules/billing/routes/billing.routes');
 
 const app = express();
-app.set('trust proxy', 1);
-
+app.set('trust proxy', 1);  // ← add this line
 
 // ── Security headers ──────────────────────────────────────────────────────────
 
