@@ -5,10 +5,7 @@ const User               = require('../../auth/models/User.model');
 const AppError           = require('../../../shared/errors/AppError');
 const logger             = require('../../../shared/utils/logger');
 
-// ── Lazy Stripe initialization ────────────────────────────────────────────────
-// Stripe is only instantiated when actually needed.
-// This prevents module-load crashes when STRIPE_SECRET_KEY is not set (tests).
-
+// ── Lazy Stripe initialization ─────────────────────────────────────────────────
 let _stripe = null;
 
 const getStripe = () => {
@@ -22,8 +19,7 @@ const getStripe = () => {
 
 const isStripeEnabled = () => !!getStripe();
 
-// ── Helper: get or create Stripe customer ─────────────────────────────────────
-
+// ── Helper: get or create Stripe customer ──────────────────────────────────────
 const getOrCreateStripeCustomer = async (user, billing) => {
   const stripe = getStripe();
   if (!stripe) return null;
@@ -46,8 +42,38 @@ const getOrCreateStripeCustomer = async (user, billing) => {
   return customer.id;
 };
 
-// ── Helper: resolve Stripe price ID ──────────────────────────────────────────
+// ── Helper: attach test payment method when none exists ────────────────────────
+// Required in test mode because Stripe subscriptions need a payment method.
+// Uses Stripe's built-in tok_visa test token — never runs in production.
+const ensureTestPaymentMethod = async (stripe, customerId) => {
+  if (process.env.NODE_ENV === 'production') return;
 
+  try {
+    const existing = await stripe.paymentMethods.list({
+      customer: customerId,
+      type:     'card',
+    });
+
+    if (existing.data.length > 0) return; // already has a payment method
+
+    const pm = await stripe.paymentMethods.create({
+      type: 'card',
+      card: { token: 'tok_visa' },
+    });
+
+    await stripe.paymentMethods.attach(pm.id, { customer: customerId });
+
+    await stripe.customers.update(customerId, {
+      invoice_settings: { default_payment_method: pm.id },
+    });
+
+    logger.info(`Test payment method attached to Stripe customer: ${customerId}`);
+  } catch (err) {
+    logger.warn(`Could not attach test payment method: ${err.message}`);
+  }
+};
+
+// ── Helper: resolve Stripe price ID ───────────────────────────────────────────
 const getStripePriceId = (plan) => {
   const envMap = {
     starter:    process.env.STRIPE_STARTER_PRICE_ID,
@@ -61,8 +87,7 @@ const getStripePriceId = (plan) => {
   return priceId;
 };
 
-// ── Helper: build usage period dates ─────────────────────────────────────────
-
+// ── Helper: build usage period dates ──────────────────────────────────────────
 const buildPeriodDates = () => {
   const now   = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -70,28 +95,20 @@ const buildPeriodDates = () => {
   return { periodStart: start, periodEnd: end };
 };
 
-// ── Get all available plans ───────────────────────────────────────────────────
-
+// ── Get all available plans ────────────────────────────────────────────────────
 const getPlans = () => Billing.getAllPlans();
 
-// ── Get billing record ────────────────────────────────────────────────────────
-
+// ── Get billing record ─────────────────────────────────────────────────────────
 const getBilling = async (userId) => {
   let billing = await Billing.findOne({ userId });
   if (!billing) billing = await initializeBilling(userId);
   return billing;
 };
 
-// ── Initialize billing record ─────────────────────────────────────────────────
-
-// ── Initialize billing record ─────────────────────────────────────────────────
-
+// ── Initialize billing record ──────────────────────────────────────────────────
 const initializeBilling = async (userId) => {
   const { periodStart, periodEnd } = buildPeriodDates();
 
-  // QUALITY-04 FIX: use findOneAndUpdate with upsert to eliminate race condition.
-  // Two simultaneous signup requests could both call User.create then both call
-  // initializeBilling — the second would hit the unique userId index and throw 11000.
   const billing = await Billing.findOneAndUpdate(
     { userId },
     {
@@ -112,8 +129,8 @@ const initializeBilling = async (userId) => {
       },
     },
     {
-      upsert:         true,
-      new:            true,
+      upsert:              true,
+      new:                 true,
       setDefaultsOnInsert: true,
     }
   );
@@ -122,8 +139,7 @@ const initializeBilling = async (userId) => {
   return billing;
 };
 
-// ── Subscribe to a plan ───────────────────────────────────────────────────────
-
+// ── Subscribe to a plan ────────────────────────────────────────────────────────
 const subscribe = async (userId, plan) => {
   const planConfig = PLANS[plan];
   if (!planConfig) throw new AppError(`Invalid plan: ${plan}`, 400, 'INVALID_PLAN');
@@ -153,6 +169,11 @@ const subscribe = async (userId, plan) => {
   if (stripe) {
     const customerId = await getOrCreateStripeCustomer(user, billing);
     const priceId    = getStripePriceId(plan);
+
+    // Attach a test payment method in non-production environments
+    // so subscriptions don't fail with "no payment source" error
+    await ensureTestPaymentMethod(stripe, customerId);
+
     let subscription;
 
     if (billing.stripeSubscriptionId) {
@@ -171,7 +192,9 @@ const subscribe = async (userId, plan) => {
       });
     }
 
-    logger.info(`Stripe subscription ${billing.stripeSubscriptionId ? 'updated' : 'created'}: ${subscription.id}`);
+    logger.info(
+      `Stripe subscription ${billing.stripeSubscriptionId ? 'updated' : 'created'}: ${subscription.id}`
+    );
 
     const renewalDate = new Date(subscription.current_period_end * 1000);
 
@@ -187,7 +210,7 @@ const subscribe = async (userId, plan) => {
     billing.cancelAtPeriodEnd    = false;
 
   } else {
-    // Non-Stripe mode — development and test environments
+    // Non-Stripe mode — development and test environments without Stripe key
     const now         = new Date();
     const renewalDate = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
 
@@ -218,8 +241,7 @@ const subscribe = async (userId, plan) => {
   return sanitizeBilling(billing);
 };
 
-// ── Change plan ───────────────────────────────────────────────────────────────
-
+// ── Change plan ────────────────────────────────────────────────────────────────
 const changePlan = async (userId, newPlan) => {
   const billing = await Billing.findOne({ userId })
     .select('+stripeSubscriptionId +stripePriceId');
@@ -235,8 +257,7 @@ const changePlan = async (userId, newPlan) => {
   return subscribe(userId, newPlan);
 };
 
-// ── Cancel subscription ───────────────────────────────────────────────────────
-
+// ── Cancel subscription ────────────────────────────────────────────────────────
 const cancelSubscription = async (userId) => {
   const billing = await Billing.findOne({ userId })
     .select('+stripeSubscriptionId');
@@ -259,14 +280,15 @@ const cancelSubscription = async (userId) => {
   return sanitizeBilling(billing);
 };
 
-// ── Reactivate subscription ───────────────────────────────────────────────────
-
+// ── Reactivate subscription ────────────────────────────────────────────────────
 const reactivateSubscription = async (userId) => {
   const billing = await Billing.findOne({ userId })
     .select('+stripeSubscriptionId');
 
   if (!billing) throw new AppError('No billing record found.', 404, 'BILLING_NOT_FOUND');
-  if (!billing.cancelAtPeriodEnd) throw new AppError('Subscription is not scheduled for cancellation.', 400, 'NOT_CANCELLED');
+  if (!billing.cancelAtPeriodEnd) {
+    throw new AppError('Subscription is not scheduled for cancellation.', 400, 'NOT_CANCELLED');
+  }
 
   const stripe = getStripe();
   if (stripe && billing.stripeSubscriptionId) {
@@ -283,8 +305,7 @@ const reactivateSubscription = async (userId) => {
   return sanitizeBilling(billing);
 };
 
-// ── Get usage metrics ─────────────────────────────────────────────────────────
-
+// ── Get usage metrics ──────────────────────────────────────────────────────────
 const getUsage = async (userId) => {
   const billing = await Billing.findOne({ userId });
   if (!billing) throw new AppError('No billing record found.', 404, 'BILLING_NOT_FOUND');
@@ -318,8 +339,7 @@ const getUsage = async (userId) => {
   };
 };
 
-// ── Increment usage ───────────────────────────────────────────────────────────
-
+// ── Increment usage ────────────────────────────────────────────────────────────
 const incrementUsage = async (userId, channel, count = 1) => {
   const billing = await Billing.findOne({ userId });
   if (!billing) throw new AppError('No billing record found.', 404, 'BILLING_NOT_FOUND');
@@ -361,8 +381,7 @@ const incrementUsage = async (userId, channel, count = 1) => {
   };
 };
 
-// ── Get invoice history ───────────────────────────────────────────────────────
-
+// ── Get invoice history ────────────────────────────────────────────────────────
 const getInvoiceHistory = async (userId) => {
   let billing = await Billing.findOne({ userId }).select('+invoiceHistory +stripeCustomerId');
   if (!billing) billing = await initializeBilling(userId);
@@ -398,8 +417,7 @@ const getInvoiceHistory = async (userId) => {
   return billing.invoiceHistory || [];
 };
 
-// ── Handle Stripe webhook ─────────────────────────────────────────────────────
-
+// ── Handle Stripe webhook ──────────────────────────────────────────────────────
 const handleStripeWebhook = async (rawBody, signature) => {
   const stripe = getStripe();
   if (!stripe) throw new AppError('Stripe is not configured.', 503, 'STRIPE_DISABLED');
@@ -469,7 +487,10 @@ const handleStripeWebhook = async (rawBody, signature) => {
       const subscription = event.data.object;
       const userId       = subscription.metadata?.userId;
       if (!userId) break;
-      await Billing.findOneAndUpdate({ userId }, { status: 'cancelled', cancelAtPeriodEnd: false, plan: 'starter' });
+      await Billing.findOneAndUpdate(
+        { userId },
+        { status: 'cancelled', cancelAtPeriodEnd: false, plan: 'starter' }
+      );
       await User.findByIdAndUpdate(userId, { subscriptionPlan: 'starter' });
       logger.info(`Subscription cancelled for user: ${userId}`);
       break;
@@ -496,8 +517,7 @@ const handleStripeWebhook = async (rawBody, signature) => {
   return { received: true, type: event.type };
 };
 
-// ── Admin: list all billing records ──────────────────────────────────────────
-
+// ── Admin: list all billing records ───────────────────────────────────────────
 const getAllBillingAdmin = async ({ page = 1, limit = 20, status, plan } = {}) => {
   const query = {};
   if (status) query.status = status;
@@ -520,7 +540,6 @@ const getAllBillingAdmin = async ({ page = 1, limit = 20, status, plan } = {}) =
 };
 
 // ── Sanitize billing for client response ──────────────────────────────────────
-
 const sanitizeBilling = (billing) => {
   const obj = billing.toObject ? billing.toObject() : { ...billing };
   delete obj.stripeCustomerId;
@@ -531,8 +550,7 @@ const sanitizeBilling = (billing) => {
   return obj;
 };
 
-// ── Exports ───────────────────────────────────────────────────────────────────
-
+// ── Exports ────────────────────────────────────────────────────────────────────
 module.exports = {
   getPlans,
   getBilling,
@@ -547,4 +565,3 @@ module.exports = {
   handleStripeWebhook,
   getAllBillingAdmin,
 };
-
