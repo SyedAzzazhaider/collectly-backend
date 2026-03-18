@@ -422,12 +422,17 @@ const handleStripeWebhook = async (rawBody, signature) => {
   const stripe = getStripe();
   if (!stripe) throw new AppError('Stripe is not configured.', 503, 'STRIPE_DISABLED');
 
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    throw new AppError('Stripe webhook secret is not configured.', 503, 'WEBHOOK_SECRET_MISSING');
+  }
+
   let event;
   try {
     event = stripe.webhooks.constructEvent(
       rawBody,
       signature,
-      process.env.STRIPE_WEBHOOK_SECRET
+      webhookSecret
     );
   } catch (err) {
     logger.warn(`Stripe webhook verification failed: ${err.message}`);
