@@ -3,6 +3,8 @@
 const crypto             = require('crypto');
 const { Notification }   = require('../models/Notification.model');
 const logger             = require('../../../shared/utils/logger');
+const Customer           = require('../../customers/models/Customer.model');
+const { DncList }        = require('../../compliance/models/DncList.model');
 
 // ── Verify SendGrid webhook signature ─────────────────────────────────────────
 
@@ -11,8 +13,7 @@ const logger             = require('../../../shared/utils/logger');
 // Verify SendGrid webhook signature
 const verifySendGridSignature = (req) => {
   const key = process.env.SENDGRID_WEBHOOK_VERIFY_KEY;
-  if (!key) return true; // skip verification when key not configured
-
+  if (!key) return process.env.NODE_ENV !== 'production';
   const signature = req.headers['x-twilio-email-event-webhook-signature'];
   const timestamp = req.headers['x-twilio-email-event-webhook-timestamp'];
   if (!signature || !timestamp) return false;
@@ -92,6 +93,37 @@ const handleSendGridWebhook = async (req, res, next) => {
           notification.status           = 'failed';
           notification.lastErrorCode    = 'UNSUBSCRIBED';
           notification.lastErrorMessage = 'Recipient unsubscribed';
+
+          // ── GDPR: auto-add to DNC list on unsubscribe ─────────────────────
+          if (notification.customerId && notification.userId) {
+            try {
+              await DncList.findOneAndUpdate(
+                {
+                  userId:     notification.userId,
+                  customerId: notification.customerId,
+                },
+                {
+                  userId:     notification.userId,
+                  customerId: notification.customerId,
+                  reason:     'unsubscribed',
+                  channel:    'email',
+                  addedAt:    new Date(),
+                },
+                { upsert: true }
+              );
+
+              await Customer.findOneAndUpdate(
+                { _id: notification.customerId, userId: notification.userId },
+                { $set: { 'preferences.doNotContact': true } }
+              );
+
+              logger.info(
+                `DNC auto-added on unsubscribe: customerId=${notification.customerId}`
+              );
+            } catch (dncErr) {
+              logger.error(`DNC write failed on unsubscribe: ${dncErr.message}`);
+            }
+          }
           break;
 
         default:

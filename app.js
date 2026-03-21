@@ -116,7 +116,8 @@ app.use('/api/v1/customers', require('./src/modules/customers/routes/customer.ro
 app.use('/api/v1/invoices',  require('./src/modules/customers/routes/invoice.routes'));
 
 // Module D — Sequences
-app.use('/api/v1/sequences', require('./src/modules/sequences/routes/sequence.routes'));
+app.use('/api/v1/sequences',              require('./src/modules/sequences/routes/sequence.routes'));
+app.use('/api/v1/sequences/legal-notices', require('./src/modules/sequences/routes/legalNotice.routes'));
 
 // Module E — Notifications & Delivery
 app.use('/api/v1/notifications', require('./src/modules/notifications/routes/notification.routes'));

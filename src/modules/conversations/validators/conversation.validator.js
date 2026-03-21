@@ -126,8 +126,8 @@ const validateCreateCannedReply = (req, res, next) => {
       return next(validationError('Canned reply validation failed', errors));
     }
 
-    req.body.name = sanitize(String(name));
-    req.body.body = sanitize(String(body));
+    req.body.name = stripHtml(String(name));
+    req.body.body = stripHtml(String(body));
     next();
   } catch {
     next(new AppError('Validation error', 422));
