@@ -12,7 +12,8 @@ const validationError = (message, fields = {}) => {
   return err;
 };
 
-const sanitize = (v) => (typeof v === 'string' ? v.trim() : v);
+const sanitize    = (v) => (typeof v === 'string' ? v.trim() : v);
+const stripHtml   = (v) => (typeof v === 'string' ? v.replace(/<[^>]*>/g, '').trim() : v);
 
 // ── Create / Update Customer ──────────────────────────────────────────────────
 
@@ -71,10 +72,11 @@ const validateCreateCustomer = (req, res, next) => {
     }
 
     // Sanitize
-    req.body.name  = sanitize(name);
-    req.body.email = sanitize(email).toLowerCase();
-    if (phone)   req.body.phone   = sanitize(phone);
-    if (company) req.body.company = sanitize(company);
+    req.body.name  = stripHtml(name);
+req.body.email = sanitize(email).toLowerCase();
+if (phone)   req.body.phone   = sanitize(phone);
+if (company) req.body.company = stripHtml(company);
+if (tags)    req.body.tags    = tags.map((t) => stripHtml(t));
 
     next();
   } catch {
@@ -133,8 +135,10 @@ const validateUpdateCustomer = (req, res, next) => {
       return next(validationError('Customer update validation failed', errors));
     }
 
-    if (name)  req.body.name  = sanitize(name);
-    if (email) req.body.email = sanitize(email).toLowerCase();
+    if (name)    req.body.name    = stripHtml(name);
+if (email)   req.body.email   = sanitize(email).toLowerCase();
+if (company) req.body.company = stripHtml(company);
+if (tags)    req.body.tags    = tags.map((t) => stripHtml(t));
 
     next();
   } catch {

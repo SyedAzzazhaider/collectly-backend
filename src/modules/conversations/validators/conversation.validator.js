@@ -12,7 +12,8 @@ const validationError = (message, fields = {}) => {
   return err;
 };
 
-const sanitize      = (v) => (typeof v === 'string' ? v.trim() : v);
+const sanitize    = (v) => (typeof v === 'string' ? v.trim() : v);
+const stripHtml   = (v) => (typeof v === 'string' ? v.replace(/<[^>]*>/g, '').trim() : v);
 const isValidObjId  = (id) => /^[a-f\d]{24}$/i.test(String(id));
 
 // ── validateSendMessage ───────────────────────────────────────────────────────
@@ -73,8 +74,8 @@ const validateSendMessage = (req, res, next) => {
       return next(validationError('Message validation failed', errors));
     }
 
-    req.body.body = sanitize(String(body));
-    if (subject) req.body.subject = sanitize(String(subject));
+    req.body.body = stripHtml(String(body));
+    if (subject) req.body.subject = stripHtml(String(subject));
     next();
   } catch {
     next(new AppError('Validation error', 422));
@@ -181,8 +182,8 @@ const validateUpdateCannedReply = (req, res, next) => {
       return next(validationError('Canned reply update validation failed', errors));
     }
 
-    if (name) req.body.name = sanitize(String(name));
-    if (body) req.body.body = sanitize(String(body));
+    if (name) req.body.name = stripHtml(String(name));
+if (body) req.body.body = stripHtml(String(body));
     next();
   } catch {
     next(new AppError('Validation error', 422));
@@ -283,6 +284,7 @@ const validateFollowUp = (req, res, next) => {
     if (Object.keys(errors).length > 0) {
       return next(validationError('Follow-up validation failed', errors));
     }
+    if (followUpNote) req.body.followUpNote = stripHtml(String(followUpNote));
 
     next();
   } catch {
