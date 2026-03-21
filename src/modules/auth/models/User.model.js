@@ -82,6 +82,14 @@ const userSchema = new mongoose.Schema(
     isActive:            { type: Boolean, default: true },
     lockedUntil:         { type: Date,    default: null },
     failedLoginAttempts: { type: Number,  default: 0 },
+
+    // ── Audit tracking ────────────────────────────────────────────────────────
+    // Records the last time the user successfully authenticated.
+    // Used for session auditing, security dashboards, and inactive account detection.
+    lastLoginAt: {
+      type:    Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -105,19 +113,19 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-// -- Indexes -------------------------------------------------------------------
-// email index is already created by unique:true � do NOT add a duplicate
+// ── Indexes ───────────────────────────────────────────────────────────────────
+// email index is already created by unique:true — do NOT add a duplicate
 userSchema.index({ googleId: 1 },    { sparse: true });
 userSchema.index({ microsoftId: 1 }, { sparse: true });
 
-// -- Pre-save: hash password ---------------------------------------------------
-// Mongoose v9 async pre-hooks do NOT receive next � use return/await pattern
+// ── Pre-save: hash password ───────────────────────────────────────────────────
+// Mongoose v9 async pre-hooks do NOT receive next — use return/await pattern
 userSchema.pre('save', async function () {
   if (!this.isModified('password') || !this.password) return;
   this.password = await bcrypt.hash(this.password, SALT_ROUNDS);
 });
 
-// -- Instance methods ----------------------------------------------------------
+// ── Instance methods ──────────────────────────────────────────────────────────
 userSchema.methods.comparePassword = async function (candidate) {
   if (!this.password) return false;
   return bcrypt.compare(candidate, this.password);

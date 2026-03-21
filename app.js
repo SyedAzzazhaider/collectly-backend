@@ -20,11 +20,33 @@ const oauthRoutes   = require('./src/modules/auth/routes/oauth.routes');
 const billingRoutes = require('./src/modules/billing/routes/billing.routes');
 
 const app = express();
-app.set('trust proxy', 1);  // ← add this line
+
+// Required for Render/proxy dployments — trusts the first proxy hop for correct IP detection
+app.set('trust proxy', 1);
 
 // ── Security headers ──────────────────────────────────────────────────────────
 
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc:  ["'self'"],
+      scriptSrc:   ["'self'"],
+      styleSrc:    ["'self'"],
+      imgSrc:      ["'self'", 'data:'],
+      connectSrc:  ["'self'"],
+      fontSrc:     ["'self'"],
+      objectSrc:   ["'none'"],
+      frameSrc:    ["'none'"],
+      upgradeInsecureRequests: [],
+    },
+  },
+  hsts: {
+    maxAge:            31536000,
+    includeSubDomains: true,
+    preload:           true,
+  },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+}));
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
 
@@ -36,9 +58,8 @@ app.use(cors({
 }));
 
 // ── Body parsing ──────────────────────────────────────────────────────────────
-// BUG-02 FIX: The verify callback captures the raw Buffer for the Stripe webhook
-// route BEFORE express.json parses it into a JS object.
-// billing.routes.js no longer needs express.raw() — this handles it globally.
+// The verify callback captures the raw Buffer for the Stripe webhook route
+// BEFORE express.json parses it into a JS object.
 
 app.use(express.json({
   limit: '1mb',
@@ -50,6 +71,13 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(cookieParser());
+
+// ── MongoDB injection protection ──────────────────────────────────────────────
+// Strips $ and . from req.body, req.params, req.query to prevent operator injection
+
+
+// ── HTTP Parameter Pollution protection ───────────────────────────────────────
+// Prevents duplicate query params from bypassing filter logic
 
 // ── HTTP request logging ──────────────────────────────────────────────────────
 

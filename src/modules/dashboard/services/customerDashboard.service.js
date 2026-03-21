@@ -3,8 +3,10 @@
 const mongoose         = require('mongoose');
 const Invoice          = require('../../customers/models/Invoice.model');
 const { Notification } = require('../../notifications/models/Notification.model');
+const { ReportCache }  = require('../models/ReportCache.model');
 const AppError         = require('../../../shared/errors/AppError');
 const logger           = require('../../../shared/utils/logger');
+const crypto           = require('crypto');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -22,12 +24,62 @@ const buildDateRange = ({ period = '30d', dateFrom, dateTo }) => {
   return { $gte: from, $lte: now };
 };
 
+// ── ReportCache utilities ─────────────────────────────────────────────────────
+
+const hashParams = (params) =>
+  crypto.createHash('md5').update(JSON.stringify(params)).digest('hex');
+
+const getCached = async (userId, reportType, params) => {
+  try {
+    const paramsHash = hashParams(params);
+    const cached = await ReportCache.findOne({
+      userId,
+      reportType,
+      paramsHash,
+      expiresAt: { $gt: new Date() },
+      isStale:   false,
+    }).lean();
+    return cached?.data || null;
+  } catch {
+    return null;
+  }
+};
+
+const setCache = async (userId, reportType, params, data, ttlSeconds = 120) => {
+  try {
+    const paramsHash = hashParams(params);
+    await ReportCache.findOneAndUpdate(
+      { userId, reportType, paramsHash },
+      {
+        userId,
+        reportType,
+        paramsHash,
+        data,
+        isStale:   false,
+        expiresAt: new Date(Date.now() + ttlSeconds * 1000),
+      },
+      { upsert: true, returnDocument: 'after' }
+    );
+  } catch (err) {
+    logger.warn(`ReportCache write failed: ${err.message}`);
+  }
+};
+
 // ── Upcoming dues ─────────────────────────────────────────────────────────────
 
 const getUpcomingDues = async (userId, { days = 30, page = 1, limit = 20 } = {}) => {
+  const params     = { days, page, limit };
+  const reportType = 'customer_upcoming_dues';
+
+  const cached = await getCached(userId, reportType, params);
+  if (cached) {
+    logger.info(`ReportCache HIT: ${reportType} userId=${userId}`);
+    return cached;
+  }
+
   const now    = new Date();
   const future = new Date();
-  future.setDate(future.getDate() + Number(days) + 1); // +1 day buffer for boundary safety
+  future.setDate(future.getDate() + Number(days) + 1);
 
   const filter = {
     userId,
@@ -46,11 +98,22 @@ const getUpcomingDues = async (userId, { days = 30, page = 1, limit = 20 } = {})
     .lean();
 
   const amountAgg = await Invoice.aggregate([
-    { $match: { userId: toObjId(userId), status: { $in: ['pending', 'partial'] }, dueDate: { $gte: now, $lte: future } } },
-    { $group: { _id: '$currency', totalOutstanding: { $sum: { $subtract: ['$amount', '$amountPaid'] } } } },
+    {
+      $match: {
+        userId:  toObjId(userId),
+        status:  { $in: ['pending', 'partial'] },
+        dueDate: { $gte: now, $lte: future },
+      },
+    },
+    {
+      $group: {
+        _id:             '$currency',
+        totalOutstanding: { $sum: { $subtract: ['$amount', '$amountPaid'] } },
+      },
+    },
   ]);
 
-  return {
+  const result = {
     invoices,
     pagination: {
       total,
@@ -59,11 +122,14 @@ const getUpcomingDues = async (userId, { days = 30, page = 1, limit = 20 } = {})
       pages: Math.ceil(total / limit),
     },
     summary: {
-      count:           total,
+      count:            total,
       amountByCurrency: amountAgg.reduce((acc, a) => { acc[a._id] = a.totalOutstanding; return acc; }, {}),
-      daysAhead:       Number(days),
+      daysAhead:        Number(days),
     },
   };
+
+  await setCache(userId, reportType, params, result, 120);
+  return result;
 };
 
 // ── Reminder history ──────────────────────────────────────────────────────────
@@ -75,6 +141,15 @@ const getReminderHistory = async (userId, {
   page     = 1,
   limit    = 20,
 } = {}) => {
+  const params     = { period, dateFrom, dateTo, page, limit };
+  const reportType = 'customer_reminder_history';
+
+  const cached = await getCached(userId, reportType, params);
+  if (cached) {
+    logger.info(`ReportCache HIT: ${reportType} userId=${userId}`);
+    return cached;
+  }
+
   const createdAt = buildDateRange({ period, dateFrom, dateTo });
 
   const filter = { userId, createdAt };
@@ -89,7 +164,6 @@ const getReminderHistory = async (userId, {
     .limit(limit)
     .lean();
 
-  // Channel + status breakdown
   const breakdown = await Notification.aggregate([
     { $match: { userId: toObjId(userId), createdAt } },
     {
@@ -111,7 +185,7 @@ const getReminderHistory = async (userId, {
     channelBreakdown[ch].total += b.count;
   }
 
-  return {
+  const result = {
     notifications,
     pagination: {
       total,
@@ -123,14 +197,25 @@ const getReminderHistory = async (userId, {
     totalSent: total,
     period:    dateFrom && dateTo ? 'custom' : period,
   };
+
+  await setCache(userId, reportType, params, result, 120);
+  return result;
 };
 
 // ── Response rate ─────────────────────────────────────────────────────────────
 
 const getResponseRate = async (userId, { period = '30d', dateFrom, dateTo } = {}) => {
+  const params     = { period, dateFrom, dateTo };
+  const reportType = 'customer_response_rate';
+
+  const cached = await getCached(userId, reportType, params);
+  if (cached) {
+    logger.info(`ReportCache HIT: ${reportType} userId=${userId}`);
+    return cached;
+  }
+
   const createdAt = buildDateRange({ period, dateFrom, dateTo });
 
-  // All invoice IDs that received at least one reminder in the period
   const remindedInvoiceIds = await Notification.distinct('invoiceId', {
     userId,
     invoiceId: { $ne: null },
@@ -140,7 +225,7 @@ const getResponseRate = async (userId, { period = '30d', dateFrom, dateTo } = {}
   const totalReminded = remindedInvoiceIds.length;
 
   if (totalReminded === 0) {
-    return {
+    const result = {
       responseRate:   0,
       totalReminded:  0,
       totalPaid:      0,
@@ -148,6 +233,8 @@ const getResponseRate = async (userId, { period = '30d', dateFrom, dateTo } = {}
       totalStillOpen: 0,
       period:         dateFrom && dateTo ? 'custom' : period,
     };
+    await setCache(userId, reportType, params, result, 120);
+    return result;
   }
 
   const [paidCount, partialCount] = await Promise.all([
@@ -155,7 +242,7 @@ const getResponseRate = async (userId, { period = '30d', dateFrom, dateTo } = {}
     Invoice.countDocuments({ _id: { $in: remindedInvoiceIds }, userId, status: 'partial' }),
   ]);
 
-  return {
+  const result = {
     responseRate:   Math.round((paidCount / totalReminded) * 100),
     totalReminded,
     totalPaid:      paidCount,
@@ -163,6 +250,9 @@ const getResponseRate = async (userId, { period = '30d', dateFrom, dateTo } = {}
     totalStillOpen: totalReminded - paidCount - partialCount,
     period:         dateFrom && dateTo ? 'custom' : period,
   };
+
+  await setCache(userId, reportType, params, result, 120);
+  return result;
 };
 
 // ── Full customer dashboard ───────────────────────────────────────────────────

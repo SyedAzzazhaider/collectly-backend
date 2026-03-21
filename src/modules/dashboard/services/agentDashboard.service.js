@@ -3,8 +3,10 @@
 const mongoose         = require('mongoose');
 const Invoice          = require('../../customers/models/Invoice.model');
 const { Notification } = require('../../notifications/models/Notification.model');
+const { ReportCache }  = require('../models/ReportCache.model');
 const AppError         = require('../../../shared/errors/AppError');
 const logger           = require('../../../shared/utils/logger');
+const crypto           = require('crypto');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -28,9 +30,59 @@ const SORT_MAP = {
   priority: { amount: -1, dueDate: 1 },
 };
 
+// ── ReportCache utilities ─────────────────────────────────────────────────────
+
+const hashParams = (params) =>
+  crypto.createHash('md5').update(JSON.stringify(params)).digest('hex');
+
+const getCached = async (userId, reportType, params) => {
+  try {
+    const paramsHash = hashParams(params);
+    const cached = await ReportCache.findOne({
+      userId,
+      reportType,
+      paramsHash,
+      expiresAt: { $gt: new Date() },
+      isStale:   false,
+    }).lean();
+    return cached?.data || null;
+  } catch {
+    return null;
+  }
+};
+
+const setCache = async (userId, reportType, params, data, ttlSeconds = 120) => {
+  try {
+    const paramsHash = hashParams(params);
+    await ReportCache.findOneAndUpdate(
+      { userId, reportType, paramsHash },
+      {
+        userId,
+        reportType,
+        paramsHash,
+        data,
+        isStale:   false,
+        expiresAt: new Date(Date.now() + ttlSeconds * 1000),
+      },
+      { upsert: true, returnDocument: 'after' }
+    );
+  } catch (err) {
+    logger.warn(`ReportCache write failed: ${err.message}`);
+  }
+};
+
 // ── Overdue list ──────────────────────────────────────────────────────────────
 
 const getOverdueList = async (userId, { page = 1, limit = 20, sortBy = 'dueDate' } = {}) => {
+  const params     = { page, limit, sortBy };
+  const reportType = 'agent_overdue_list';
+
+  const cached = await getCached(userId, reportType, params);
+  if (cached) {
+    logger.info(`ReportCache HIT: ${reportType} userId=${userId}`);
+    return cached;
+  }
+
   const filter = { userId, status: 'overdue' };
   const skip   = (page - 1) * limit;
   const total  = await Invoice.countDocuments(filter);
@@ -61,7 +113,7 @@ const getOverdueList = async (userId, { page = 1, limit = 20, sortBy = 'dueDate'
     },
   ]);
 
-  return {
+  const result = {
     invoices:   annotated,
     pagination: { total, page, limit, pages: Math.ceil(total / limit) },
     totals:     totalsAgg.reduce((acc, t) => {
@@ -69,6 +121,9 @@ const getOverdueList = async (userId, { page = 1, limit = 20, sortBy = 'dueDate'
       return acc;
     }, {}),
   };
+
+  await setCache(userId, reportType, params, result, 120);
+  return result;
 };
 
 // ── Payment history ───────────────────────────────────────────────────────────
@@ -80,6 +135,15 @@ const getPaymentHistory = async (userId, {
   page     = 1,
   limit    = 20,
 } = {}) => {
+  const params     = { period, dateFrom, dateTo, page, limit };
+  const reportType = 'agent_payment_history';
+
+  const cached = await getCached(userId, reportType, params);
+  if (cached) {
+    logger.info(`ReportCache HIT: ${reportType} userId=${userId}`);
+    return cached;
+  }
+
   const paidAt = buildDateRange({ period, dateFrom, dateTo });
 
   const filter = { userId, status: 'paid', paidAt };
@@ -98,7 +162,7 @@ const getPaymentHistory = async (userId, {
     { $group: { _id: '$currency', totalRecovered: { $sum: '$amount' } } },
   ]);
 
-  return {
+  const result = {
     invoices,
     pagination: { total, page, limit, pages: Math.ceil(total / limit) },
     recovered:  recoveredAgg.reduce((acc, r) => {
@@ -107,12 +171,23 @@ const getPaymentHistory = async (userId, {
     }, {}),
     period: dateFrom && dateTo ? 'custom' : period,
   };
+
+  await setCache(userId, reportType, params, result, 120);
+  return result;
 };
 
 // ── Priority queue ────────────────────────────────────────────────────────────
-// Priority score = outstanding amount × days overdue (higher = more urgent)
 
 const getPriorityQueue = async (userId, { page = 1, limit = 20 } = {}) => {
+  const params     = { page, limit };
+  const reportType = 'agent_priority_queue';
+
+  const cached = await getCached(userId, reportType, params);
+  if (cached) {
+    logger.info(`ReportCache HIT: ${reportType} userId=${userId}`);
+    return cached;
+  }
+
   const now   = new Date();
   const skip  = (page - 1) * limit;
   const total = await Invoice.countDocuments({ userId, status: 'overdue' });
@@ -157,18 +232,29 @@ const getPriorityQueue = async (userId, { page = 1, limit = 20 } = {}) => {
     { $project: { reminderHistory: 0, __v: 0 } },
   ]);
 
-  return {
+  const result = {
     invoices,
     pagination: { total, page, limit, pages: Math.ceil(total / limit) },
   };
+
+  await setCache(userId, reportType, params, result, 120);
+  return result;
 };
 
 // ── Recovery rate ─────────────────────────────────────────────────────────────
 
 const getRecoveryRate = async (userId, { period = '30d', dateFrom, dateTo } = {}) => {
+  const params     = { period, dateFrom, dateTo };
+  const reportType = 'agent_recovery_rate';
+
+  const cached = await getCached(userId, reportType, params);
+  if (cached) {
+    logger.info(`ReportCache HIT: ${reportType} userId=${userId}`);
+    return cached;
+  }
+
   const dueDate = buildDateRange({ period, dateFrom, dateTo });
 
-  // Invoices whose due date fell within the period (were or became overdue)
   const totalOverdue = await Invoice.countDocuments({
     userId,
     status:  { $in: ['overdue', 'paid', 'partial', 'cancelled'] },
@@ -176,13 +262,15 @@ const getRecoveryRate = async (userId, { period = '30d', dateFrom, dateTo } = {}
   });
 
   if (totalOverdue === 0) {
-    return {
+    const result = {
       recoveryRate:   0,
       totalOverdue:   0,
       totalRecovered: 0,
       totalPartial:   0,
       period:         dateFrom && dateTo ? 'custom' : period,
     };
+    await setCache(userId, reportType, params, result, 120);
+    return result;
   }
 
   const [recovered, partial] = await Promise.all([
@@ -190,13 +278,16 @@ const getRecoveryRate = async (userId, { period = '30d', dateFrom, dateTo } = {}
     Invoice.countDocuments({ userId, status: 'partial', dueDate }),
   ]);
 
-  return {
+  const result = {
     recoveryRate:   Math.round((recovered / totalOverdue) * 100),
     totalOverdue,
     totalRecovered: recovered,
     totalPartial:   partial,
     period:         dateFrom && dateTo ? 'custom' : period,
   };
+
+  await setCache(userId, reportType, params, result, 120);
+  return result;
 };
 
 // ── Full agent dashboard ──────────────────────────────────────────────────────

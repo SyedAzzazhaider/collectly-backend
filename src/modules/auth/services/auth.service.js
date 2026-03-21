@@ -85,6 +85,7 @@ const issueTokenPair = async (user, res, meta = {}) => {
 
   sessions.push(entry);
   userDoc.refreshTokens = sessions;
+  userDoc.lastLoginAt   = new Date();
   await userDoc.save({ validateBeforeSave: false });
 
   attachRefreshCookie(res, plainRefresh);

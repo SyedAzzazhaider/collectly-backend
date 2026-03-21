@@ -18,14 +18,22 @@ const getTwilio = () => {
   return _twilioClient;
 };
 
-const isSmsEnabled = () => !!(
-  process.env.TWILIO_ACCOUNT_SID &&
-  process.env.TWILIO_AUTH_TOKEN &&
-  process.env.TWILIO_PHONE_NUMBER &&
-  !process.env.TWILIO_ACCOUNT_SID.includes('your_')
-);
+const isSmsEnabled = () => {
+  // Always simulate in test environment — never hit real Twilio during tests
+  if (process.env.NODE_ENV === 'test') return false;
+  return !!(
+    process.env.TWILIO_ACCOUNT_SID &&
+    process.env.TWILIO_AUTH_TOKEN &&
+    process.env.TWILIO_PHONE_NUMBER &&
+    !process.env.TWILIO_ACCOUNT_SID.includes('your_')
+  );
+};
 
-const isWhatsAppEnabled = () => isSmsEnabled() && !!process.env.TWILIO_WHATSAPP_NUMBER;
+const isWhatsAppEnabled = () => {
+  // Always simulate in test environment — never hit real Twilio during tests
+  if (process.env.NODE_ENV === 'test') return false;
+  return isSmsEnabled() && !!process.env.TWILIO_WHATSAPP_NUMBER;
+};
 
 const sanitizePhone = (phone) => {
   const cleaned = String(phone).replace(/\s/g, '');
@@ -40,8 +48,8 @@ const sendSms = async ({ to, body }) => {
 
   // Primary: Twilio
   if (isSmsEnabled()) {
-    const client    = getTwilio();
-    const toPhone   = sanitizePhone(to);
+    const client        = getTwilio();
+    const toPhone       = sanitizePhone(to);
     const truncatedBody = body.length > 1600 ? body.substring(0, 1597) + '...' : body;
 
     try {
