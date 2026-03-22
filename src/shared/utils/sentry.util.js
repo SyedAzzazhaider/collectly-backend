@@ -71,3 +71,4 @@ const captureMessage = (message, level = 'info', context = {}) => {
 };
 
 module.exports = { getSentry, isSentryEnabled, captureException, captureMessage };
+

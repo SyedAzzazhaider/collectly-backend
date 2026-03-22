@@ -96,3 +96,4 @@ const preview = async (req, res, next) => {
 };
 
 module.exports = { create, getAll, getCategories, getById, update, remove, preview };
+

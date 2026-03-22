@@ -69,6 +69,14 @@ const alertSchema = new mongoose.Schema(
       type:    Boolean,
       default: false,
     },
+    smsSent: {
+  type:    Boolean,
+  default: false,
+},
+whatsAppSent: {
+  type:    Boolean,
+  default: false,
+},
 
     // Contextual references — all optional
     invoiceId: {
@@ -118,3 +126,4 @@ alertSchema.index({ createdAt: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 });
 
 const Alert = mongoose.model('Alert', alertSchema);
 module.exports = { Alert, VALID_ALERT_TYPES, VALID_SEVERITIES };
+

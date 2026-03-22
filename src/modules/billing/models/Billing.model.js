@@ -1,8 +1,8 @@
-﻿'use strict';
+'use strict';
 
 const mongoose = require('mongoose');
 
-// â”€â”€ Plan configuration constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Plan configuration constants ──────────────────────────────────────────────
 
 const PLANS = {
   starter: {
@@ -34,7 +34,7 @@ const PLANS = {
   },
 };
 
-// â”€â”€ Usage tracking sub-schema â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Usage tracking sub-schema ─────────────────────────────────────────────────
 
 const usageSchema = new mongoose.Schema(
   {
@@ -48,7 +48,7 @@ const usageSchema = new mongoose.Schema(
   { _id: false }
 );
 
-// â”€â”€ Invoice history sub-schema â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Invoice history sub-schema ────────────────────────────────────────────────
 
 const invoiceHistorySchema = new mongoose.Schema(
   {
@@ -63,7 +63,7 @@ const invoiceHistorySchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// â”€â”€ Main Billing schema â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Main Billing schema ───────────────────────────────────────────────────────
 
 const billingSchema = new mongoose.Schema(
   {
@@ -132,13 +132,13 @@ const billingSchema = new mongoose.Schema(
   }
 );
 
-// â”€â”€ Indexes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Indexes ───────────────────────────────────────────────────────────────────
 
 billingSchema.index({ status: 1 });
 billingSchema.index({ stripeCustomerId: 1 }, { sparse: true });
 billingSchema.index({ stripeSubscriptionId: 1 }, { sparse: true });
 
-// â”€â”€ Instance methods â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Instance methods ──────────────────────────────────────────────────────────
 
 billingSchema.methods.isActive = function () {
   return ['active', 'trialing'].includes(this.status);
@@ -169,7 +169,7 @@ billingSchema.methods.hasApiAccess = function () {
   return config?.apiAccess || false;
 };
 
-// â”€â”€ Static methods â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Static methods ────────────────────────────────────────────────────────────
 
 billingSchema.statics.getPlanConfig = function (plan) {
   return PLANS[plan] || null;
@@ -190,3 +190,5 @@ billingSchema.statics.getAllPlans = function () {
 const Billing = mongoose.model('Billing', billingSchema);
 
 module.exports = { Billing, PLANS };
+
+

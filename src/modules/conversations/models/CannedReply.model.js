@@ -102,3 +102,4 @@ cannedReplySchema.index({ userId: 1, tags: 1 });
 const CannedReply = mongoose.model('CannedReply', cannedReplySchema);
 
 module.exports = { CannedReply };
+

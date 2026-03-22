@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const express    = require('express');
 const router     = express.Router();
@@ -48,3 +48,5 @@ router.route('/:id')
   .delete(restrictTo('owner', 'admin'), invoiceController.deleteInvoice);
 
 module.exports = router;
+
+

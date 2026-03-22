@@ -57,7 +57,7 @@ const validateSignup = (req, res, next) => {
     }
 
     // Terms of Service acceptance
-    if (!req.body.tosAccepted || req.body.tosAccepted !== true) {
+    if (req.body.tosAccepted !== true && req.body.tosAccepted !== 'true') {
       errors.tosAccepted = 'You must accept the Terms of Service and Privacy Policy to register';
     }
 
@@ -256,3 +256,4 @@ module.exports = {
   validateForgotPassword,
   validateResetPassword,
 };
+

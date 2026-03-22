@@ -38,3 +38,4 @@ router.route('/:id')
   .delete(restrictTo('owner', 'admin'), customerController.deleteCustomer);
 
 module.exports = router;
+

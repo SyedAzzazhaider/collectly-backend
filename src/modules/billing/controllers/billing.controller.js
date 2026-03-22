@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const billingService = require('../services/billing.service');
 const AppError       = require('../../../shared/errors/AppError');
@@ -142,3 +142,4 @@ module.exports = {
   stripeWebhook,
   getAllBillingAdmin,
 };
+

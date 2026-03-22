@@ -48,3 +48,4 @@ const getNotificationQueue = () => {
 };
 
 module.exports = { getReminderQueue, getNotificationQueue };
+

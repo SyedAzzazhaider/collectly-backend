@@ -89,3 +89,4 @@ const decrypt = (cipherText) => {
 const generateOtpLabel = (email) => `Collectly:${email}`;
 
 module.exports = { encrypt, decrypt, generateOtpLabel };
+

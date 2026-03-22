@@ -149,3 +149,4 @@ router.post('/:id/preview', sequenceController.previewSchedule);
 router.get('/:id/phases/:phaseNumber', sequenceController.getPhaseDetails);
 
 module.exports = router;
+

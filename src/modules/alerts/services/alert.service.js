@@ -6,13 +6,13 @@ const User       = require('../../auth/models/User.model');
 const AppError   = require('../../../shared/errors/AppError');
 const logger     = require('../../../shared/utils/logger');
 const emailService = require('../../notifications/services/email.service');
-
+const smsService   = require('../../notifications/services/sms.service');
 // ── Core: Create alert + optional email ───────────────────────────────────────
 
 const createAlert = async ({
   userId,
   type,
-  severity = 'info',
+  severity   = 'info',
   title,
   message,
   invoiceId  = null,
@@ -20,6 +20,8 @@ const createAlert = async ({
   messageId  = null,
   metadata   = {},
   sendEmail  = false,
+  sendSms    = false,
+  sendWhatsApp = false,
 }) => {
   try {
     const alert = await Alert.create({
@@ -54,6 +56,44 @@ const createAlert = async ({
       } catch (emailErr) {
         // Email failure must never prevent alert creation
         logger.warn(`Alert email failed for user ${userId}: ${emailErr.message}`);
+      }
+    }
+
+    // ── SMS alert delivery ────────────────────────────────────────────────────
+    if (sendSms) {
+      try {
+        const user = await User.findById(userId).select('name phone');
+        if (user?.phone) {
+          const result = await smsService.sendSms({
+            to:   user.phone,
+            body: `Collectly Alert: ${title}. ${message}`,
+          });
+          if (result.success) {
+            alert.smsSent = true;
+            await alert.save({ validateBeforeSave: false });
+          }
+        }
+      } catch (smsErr) {
+        logger.warn(`Alert SMS failed for user ${userId}: ${smsErr.message}`);
+      }
+    }
+
+    // ── WhatsApp alert delivery ───────────────────────────────────────────────
+    if (sendWhatsApp) {
+      try {
+        const user = await User.findById(userId).select('name phone');
+        if (user?.phone) {
+          const result = await smsService.sendWhatsApp({
+            to:   user.phone,
+            body: `Collectly Alert: ${title}. ${message}`,
+          });
+          if (result.success) {
+            alert.whatsAppSent = true;
+            await alert.save({ validateBeforeSave: false });
+          }
+        }
+      } catch (waErr) {
+        logger.warn(`Alert WhatsApp failed for user ${userId}: ${waErr.message}`);
       }
     }
 
@@ -300,3 +340,4 @@ module.exports = {
   triggerCustomerReply,
   triggerEscalationTriggered,
 };
+

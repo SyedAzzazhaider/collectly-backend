@@ -225,3 +225,4 @@ notificationSchema.statics.getValidTypes    = () => VALID_TYPES;
 const Notification = mongoose.model('Notification', notificationSchema);
 
 module.exports = { Notification, VALID_CHANNELS, VALID_STATUSES, VALID_TYPES };
+

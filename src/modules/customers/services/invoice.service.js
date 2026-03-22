@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const Invoice  = require('../models/Invoice.model');
 const Customer = require('../models/Customer.model');
@@ -10,7 +10,7 @@ const alertService = require('../../alerts/services/alert.service');
 // to prevent ReDoS (catastrophic backtracking) attacks.
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-// ── Create invoice ────────────────────────────────────────────────────────────
+// -- Create invoice ------------------------------------------------------------
 
 const createInvoice = async (userId, data) => {
   const {
@@ -50,7 +50,7 @@ const createInvoice = async (userId, data) => {
   return invoice;
 };
 
-// ── Get all invoices (with filters) ──────────────────────────────────────────
+// -- Get all invoices (with filters) ------------------------------------------
 
 const getInvoices = async (userId, {
   page        = 1,
@@ -101,7 +101,7 @@ const getInvoices = async (userId, {
   };
 };
 
-// ── Get single invoice ────────────────────────────────────────────────────────
+// -- Get single invoice --------------------------------------------------------
 
 const getInvoiceById = async (userId, invoiceId) => {
   const invoice = await Invoice.findOne({ _id: invoiceId, userId })
@@ -114,7 +114,7 @@ const getInvoiceById = async (userId, invoiceId) => {
   return invoice;
 };
 
-// ── Update invoice ────────────────────────────────────────────────────────────
+// -- Update invoice ------------------------------------------------------------
 
 const updateInvoice = async (userId, invoiceId, data) => {
   const invoice = await Invoice.findOne({ _id: invoiceId, userId });
@@ -161,7 +161,7 @@ const updateInvoice = async (userId, invoiceId, data) => {
   return invoice;
 };
 
-// ── Delete invoice ────────────────────────────────────────────────────────────
+// -- Delete invoice ------------------------------------------------------------
 
 const deleteInvoice = async (userId, invoiceId) => {
   const invoice = await Invoice.findOne({ _id: invoiceId, userId });
@@ -179,7 +179,7 @@ const deleteInvoice = async (userId, invoiceId) => {
   return { deleted: true, invoiceId };
 };
 
-// ── Record partial or full payment ────────────────────────────────────────────
+// -- Record partial or full payment --------------------------------------------
 
 const recordPayment = async (userId, invoiceId, paymentAmount) => {
   const invoice = await Invoice.findOne({ _id: invoiceId, userId });
@@ -222,7 +222,7 @@ const recordPayment = async (userId, invoiceId, paymentAmount) => {
         $inc: { activeInvoiceCount: -1 },
       });
 
-      // Clear sequence fields — paid invoices no longer need reminder scheduling
+      // Clear sequence fields � paid invoices no longer need reminder scheduling
       await Invoice.findByIdAndUpdate(invoiceId, {
         $set: {
           sequenceId:         null,
@@ -234,20 +234,20 @@ const recordPayment = async (userId, invoiceId, paymentAmount) => {
 
       logger.info(`Sequence assignment cleared for paid invoice ${invoiceId}`);
     } catch (seqErr) {
-      // Non-fatal: log and continue — payment was already saved successfully
+      // Non-fatal: log and continue � payment was already saved successfully
       logger.warn(
         `Failed to update sequence count for paid invoice ${invoiceId}: ${seqErr.message}`
       );
     }
   }
 
-  // Module I — fire-and-forget alert (never blocks payment recording)
+  // Module I � fire-and-forget alert (never blocks payment recording)
   alertService.triggerPaymentReceived(userId, { invoice, amount: paymentAmount }).catch(() => {});
 
   return invoice;
 };
 
-// ── Mark overdue invoices (called by scheduler) ───────────────────────────────
+// -- Mark overdue invoices (called by scheduler) -------------------------------
 
 const markOverdueInvoices = async () => {
   const result = await Invoice.updateMany(
@@ -262,7 +262,7 @@ const markOverdueInvoices = async () => {
   return result.modifiedCount;
 };
 
-// ── Get overdue invoices (for agent dashboard) ────────────────────────────────
+// -- Get overdue invoices (for agent dashboard) --------------------------------
 
 const getOverdueInvoices = async (userId, { page = 1, limit = 20 } = {}) => {
   const query = { userId, status: 'overdue' };
@@ -282,7 +282,7 @@ const getOverdueInvoices = async (userId, { page = 1, limit = 20 } = {}) => {
   };
 };
 
-// ── Add attachment to invoice ─────────────────────────────────────────────────
+// -- Add attachment to invoice -------------------------------------------------
 
 const addAttachment = async (userId, invoiceId, fileData) => {
   const invoice = await Invoice.findOne({ _id: invoiceId, userId });
@@ -311,7 +311,7 @@ const addAttachment = async (userId, invoiceId, fileData) => {
   return invoice;
 };
 
-// ── Remove attachment from invoice ───────────────────────────────────────────
+// -- Remove attachment from invoice -------------------------------------------
 
 const removeAttachment = async (userId, invoiceId, attachmentIndex) => {
   const { deleteFromS3 } = require('../../../shared/utils/s3.util');
@@ -353,3 +353,4 @@ module.exports = {
   addAttachment,
   removeAttachment,
 };
+

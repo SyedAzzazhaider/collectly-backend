@@ -240,3 +240,4 @@ sequenceSchema.statics.getValidReminderTypes = () => VALID_REMINDER_TYPES;
 const Sequence = mongoose.model('Sequence', sequenceSchema);
 
 module.exports = { Sequence, VALID_CHANNELS, VALID_PHASE_TYPES, VALID_REMINDER_TYPES };
+

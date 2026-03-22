@@ -3,6 +3,7 @@
 const invoiceService = require('../services/invoice.service');
 const AppError       = require('../../../shared/errors/AppError');
 const { getSignedDownloadUrl } = require('../../../shared/utils/s3.util');
+const { createAuditLog, auditFromReq } = require('../../../shared/utils/audit.util');
 
 const sendSuccess = (res, statusCode, message, data = {}) =>
   res.status(statusCode).json({ status: 'success', message, data });
@@ -90,6 +91,14 @@ const updateInvoice = async (req, res, next) => {
 const deleteInvoice = async (req, res, next) => {
   try {
     const result = await invoiceService.deleteInvoice(req.user.id, req.params.id);
+    
+    await createAuditLog('invoice.delete', {
+      ...auditFromReq(req),
+      userId:       req.user.id,
+      resourceType: 'invoice',
+      resourceId:   req.params.id,
+    });
+    
     sendSuccess(res, 200, 'Invoice deleted successfully.', result);
   } catch (err) { next(err); }
 };
@@ -103,6 +112,15 @@ const recordPayment = async (req, res, next) => {
       req.params.id,
       req.body.amount
     );
+    
+    await createAuditLog('invoice.payment', {
+      ...auditFromReq(req),
+      userId:       req.user.id,
+      resourceType: 'invoice',
+      resourceId:   req.params.id,
+      metadata:     { amount: req.body.amount },
+    });
+    
     sendSuccess(res, 200, 'Payment recorded successfully.', { invoice });
   } catch (err) { next(err); }
 };
@@ -177,3 +195,4 @@ module.exports = {
   removeAttachment,
   getAttachmentDownloadUrl,
 };
+

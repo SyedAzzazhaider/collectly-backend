@@ -188,3 +188,4 @@ paymentPlanSchema.statics.getValidFrequencies = () => VALID_FREQUENCIES;
 const PaymentPlan = mongoose.model('PaymentPlan', paymentPlanSchema);
 
 module.exports = { PaymentPlan, VALID_STATUSES, VALID_FREQUENCIES };
+

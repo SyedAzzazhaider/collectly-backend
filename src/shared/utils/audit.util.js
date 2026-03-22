@@ -39,3 +39,4 @@ const auditFromReq = (req) => ({
 });
 
 module.exports = { createAuditLog, auditFromReq };
+

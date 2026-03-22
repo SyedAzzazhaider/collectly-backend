@@ -536,3 +536,6 @@ describe('Security — Module C data isolation', () => {
     expect(res2.body.data.invoices[0].invoiceNumber).toBe('SEC-INV-002');
   });
 });
+
+
+

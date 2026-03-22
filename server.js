@@ -23,15 +23,37 @@ let subscriptionTimer  = null;
 let notificationTimer  = null;
 let batchRunning       = false;
 
-const startSchedulers = () => {
+const startSchedulers = async () => {
   if (!SCHEDULER_ENABLED) {
     logger.info('Schedulers disabled (NODE_ENV=test or SCHEDULER_ENABLED=false)');
     return;
   }
-
   const reminderEngine   = require('./src/modules/sequences/services/reminderEngine.service');
   const alertService     = require('./src/modules/alerts/services/alert.service');
   const deliveryService  = require('./src/modules/notifications/services/delivery.service');
+  const { getReminderQueue, getNotificationQueue } = require('./src/shared/utils/queue.util');
+
+  // ── Initialize Bull queues if Redis is configured ─────────────────────────
+  // Queues are used for distributed scheduling when Redis is provisioned.
+  // Falls back to setInterval when Redis is not available.
+  const reminderQueue     = getReminderQueue();
+  const notificationQueue = getNotificationQueue();
+
+  if (reminderQueue) {
+    reminderQueue.process(async (job) => {
+      await runReminderBatch();
+      return { done: true };
+    });
+    logger.info('Bull reminder queue processor registered');
+  }
+
+  if (notificationQueue) {
+    notificationQueue.process(async (job) => {
+      await runNotificationRetry();
+      return { done: true };
+    });
+    logger.info('Bull notification queue processor registered');
+  }
 
   // ── Reminder batch ──────────────────────────────────────────────────────────
   const runReminderBatch = async () => {
@@ -83,6 +105,17 @@ const startSchedulers = () => {
     }
   };
 
+  // ── Schedule Bull queue jobs if queues are active ─────────────────────────
+  if (reminderQueue) {
+    await reminderQueue.add({}, { repeat: { every: SCHEDULER_INTERVAL_MS } });
+    logger.info(`Bull reminder queue scheduled — interval: ${SCHEDULER_INTERVAL_MS / 1000}s`);
+  }
+
+  if (notificationQueue) {
+    await notificationQueue.add({}, { repeat: { every: NOTIFICATION_RETRY_MS } });
+    logger.info(`Bull notification queue scheduled — interval: ${NOTIFICATION_RETRY_MS / 1000}s`);
+  }
+
   // 30-second warm-up before first runs (let DB connection settle)
   setTimeout(runReminderBatch,     30 * 1000);
   setTimeout(runSubscriptionCheck, 60 * 1000);
@@ -113,7 +146,7 @@ const startServer = async () => {
     logger.info(`Collectly API running on port ${PORT} [${process.env.NODE_ENV}]`);
   });
 
-  startSchedulers();
+  startSchedulers().catch((err) => logger.error(`Scheduler startup error: ${err.message}`));
 
   const shutdown = (signal) => {
     logger.warn(`${signal} received. Shutting down gracefully.`);

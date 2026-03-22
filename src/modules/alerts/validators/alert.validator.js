@@ -49,3 +49,4 @@ const validateGetAlerts = (req, res, next) => {
 };
 
 module.exports = { validateGetAlerts };
+

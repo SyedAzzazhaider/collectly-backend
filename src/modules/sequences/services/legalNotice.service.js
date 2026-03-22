@@ -148,3 +148,4 @@ module.exports = {
   renderTemplate,
   SUPPORTED_VARIABLES,
 };
+

@@ -89,3 +89,4 @@ reportCacheSchema.index({ reportType: 1, isStale: 1 });
 
 const ReportCache = mongoose.model('ReportCache', reportCacheSchema);
 module.exports = { ReportCache, VALID_REPORT_TYPES };
+

@@ -147,3 +147,4 @@ if (tags)    req.body.tags    = tags.map((t) => stripHtml(t));
 };
 
 module.exports = { validateCreateCustomer, validateUpdateCustomer };
+

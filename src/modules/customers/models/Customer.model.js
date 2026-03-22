@@ -130,3 +130,4 @@ customerSchema.index({ userId: 1, isActive: 1 });
 
 const Customer = mongoose.model('Customer', customerSchema);
 module.exports = Customer;
+

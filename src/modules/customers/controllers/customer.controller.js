@@ -2,6 +2,7 @@
 
 const customerService = require('../services/customer.service');
 const AppError        = require('../../../shared/errors/AppError');
+const { createAuditLog, auditFromReq } = require('../../../shared/utils/audit.util');
 
 const sendSuccess = (res, statusCode, message, data = {}) =>
   res.status(statusCode).json({ status: 'success', message, data });
@@ -28,6 +29,14 @@ const parsePageParams = (query, next) => {
 const createCustomer = async (req, res, next) => {
   try {
     const customer = await customerService.createCustomer(req.user.id, req.body);
+    
+    await createAuditLog('customer.create', {
+      ...auditFromReq(req),
+      userId:       req.user.id,
+      resourceType: 'customer',
+      resourceId:   customer._id || customer?.customer?._id,
+    });
+    
     sendSuccess(res, 201, 'Customer created successfully.', { customer });
   } catch (err) { next(err); }
 };
@@ -85,6 +94,14 @@ const updateCustomer = async (req, res, next) => {
 const deleteCustomer = async (req, res, next) => {
   try {
     const result = await customerService.deleteCustomer(req.user.id, req.params.id);
+    
+    await createAuditLog('customer.delete', {
+      ...auditFromReq(req),
+      userId:       req.user.id,
+      resourceType: 'customer',
+      resourceId:   req.params.id,
+    });
+    
     sendSuccess(res, 200, 'Customer deleted successfully.', result);
   } catch (err) { next(err); }
 };
@@ -97,3 +114,4 @@ module.exports = {
   updateCustomer,
   deleteCustomer,
 };
+

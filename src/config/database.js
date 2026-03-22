@@ -21,3 +21,4 @@ mongoose.connection.on('disconnected', () => logger.warn('MongoDB disconnected')
 mongoose.connection.on('error', (err) => logger.error(`MongoDB error: ${err.message}`));
 
 module.exports = connectDB;
+

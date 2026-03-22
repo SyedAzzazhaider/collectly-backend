@@ -69,3 +69,4 @@ router.post('/:id/read', alertController.markAsRead);
 router.delete('/:id', alertController.deleteAlert);
 
 module.exports = router;
+

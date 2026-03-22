@@ -45,3 +45,4 @@ legalNoticeSchema.index({ userId: 1, isActive: 1 });
 
 const LegalNotice = mongoose.model('LegalNotice', legalNoticeSchema);
 module.exports = { LegalNotice };
+

@@ -2,6 +2,7 @@
 
 const complianceService = require('../services/compliance.service');
 const AppError          = require('../../../shared/errors/AppError');
+const { createAuditLog, auditFromReq } = require('../../../shared/utils/audit.util');
 
 const sendSuccess = (res, statusCode, message, data = {}) =>
   res.status(statusCode).json({ status: 'success', message, data });
@@ -133,6 +134,14 @@ const addToDnc = async (req, res, next) => {
       reason:     req.body.reason   || 'customer_request',
       notes:      req.body.notes    || null,
     });
+    
+    await createAuditLog('compliance.dnc_add', {
+      ...auditFromReq(req),
+      userId:       req.user.id,
+      resourceType: 'compliance',
+      resourceId:   req.body.customerId,
+    });
+    
     sendSuccess(res, 201, 'Customer added to DNC list.', { dncEntry: result });
   } catch (err) { next(err); }
 };
@@ -146,6 +155,14 @@ const removeFromDnc = async (req, res, next) => {
       req.params.customerId,
       req.user.id
     );
+    
+    await createAuditLog('compliance.dnc_remove', {
+      ...auditFromReq(req),
+      userId:       req.user.id,
+      resourceType: 'compliance',
+      resourceId:   req.params.customerId,
+    });
+    
     sendSuccess(res, 200, 'Customer removed from DNC list.', { dncEntry: result });
   } catch (err) { next(err); }
 };
@@ -172,6 +189,14 @@ const requestDataExport = async (req, res, next) => {
       customerId: req.body.customerId || null,
       ipAddress,
     });
+    
+    await createAuditLog('compliance.gdpr_export', {
+      ...auditFromReq(req),
+      userId:       req.user.id,
+      resourceType: 'compliance',
+      metadata:     { requestedBy: req.user.id },
+    });
+    
     sendSuccess(res, 201, 'Data export request submitted.', { exportRequest: result });
   } catch (err) { next(err); }
 };
@@ -225,3 +250,4 @@ module.exports = {
   getExportStatus,
   downloadExport,
 };
+

@@ -72,21 +72,54 @@ const issueTokenPair = async (user, res, meta = {}) => {
   );
   entry.jti = jti;
 
-  const userDoc = await User.findById(user._id).select('+refreshTokens');
-  if (!userDoc) throw new AppError('User not found', 404);
+  const now = new Date();
 
-  const now    = new Date();
-  let sessions = (userDoc.refreshTokens || []).filter((s) => s.expiresAt > now);
+  // Atomic update — prevents race condition where concurrent logins
+  // bypass the session cap by reading the same stale session array
+  const updatedUser = await User.findByIdAndUpdate(
+    user._id,
+    [
+      {
+        $set: {
+          lastLoginAt:   now,
+          refreshTokens: {
+            $let: {
+              vars: {
+                valid: {
+                  $filter: {
+                    input: { $ifNull: ['$refreshTokens', []] },
+                    as:    'session',
+                    cond:  { $gt: ['$$session.expiresAt', now] },
+                  },
+                },
+              },
+              in: {
+                $concatArrays: [
+                  {
+                    $cond: {
+                      if: { $gte: [{ $size: '$$valid' }, MAX_REFRESH_SESSIONS] },
+                      then: {
+                        $slice: [
+                          '$$valid',
+                          { $subtract: [{ $size: '$$valid' }, { $subtract: [MAX_REFRESH_SESSIONS, 1] }] },
+                          MAX_REFRESH_SESSIONS,
+                        ],
+                      },
+                      else: '$$valid',
+                    },
+                  },
+                  [entry],
+                ],
+              },
+            },
+          },
+        },
+      },
+    ],
+     { returnDocument: 'after', updatePipeline: true }
+      );
 
-  if (sessions.length >= MAX_REFRESH_SESSIONS) {
-    sessions.sort((a, b) => a.createdAt - b.createdAt);
-    sessions = sessions.slice(sessions.length - (MAX_REFRESH_SESSIONS - 1));
-  }
-
-  sessions.push(entry);
-  userDoc.refreshTokens = sessions;
-  userDoc.lastLoginAt   = new Date();
-  await userDoc.save({ validateBeforeSave: false });
+  if (!updatedUser) throw new AppError('User not found', 404);
 
   attachRefreshCookie(res, plainRefresh);
 
@@ -645,3 +678,4 @@ module.exports = {
   sendVerificationEmail,
   verifyEmail,
 };
+

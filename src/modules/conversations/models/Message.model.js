@@ -231,3 +231,4 @@ messageSchema.statics.getValidStatuses   = () => VALID_STATUSES;
 const Message = mongoose.model('Message', messageSchema);
 
 module.exports = { Message, VALID_CHANNELS, VALID_DIRECTIONS, VALID_TYPES, VALID_STATUSES };
+

@@ -55,3 +55,5 @@ router.post('/2fa/disable', (req, res, next) => {
 }, protect, validateTwoFactor, authController.disable2FA);
 
 module.exports = router;
+
+

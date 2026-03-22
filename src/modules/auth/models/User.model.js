@@ -131,6 +131,24 @@ privacyAcceptedAt: {
 userSchema.index({ googleId: 1 },    { sparse: true });
 userSchema.index({ microsoftId: 1 }, { sparse: true });
 
+// ── Token lookup indexes ───────────────────────────────────────────────────────
+// Enables fast O(1) lookup during password reset and email verification
+// instead of full collection scan at 100K+ users
+userSchema.index({ passwordResetToken: 1 },  { sparse: true });
+userSchema.index({ emailVerifyToken: 1 },     { sparse: true });
+
+// ── TTL indexes — auto-expire stale tokens from DB ────────────────────────────
+// passwordResetExpires: tokens older than 1 hour are auto-deleted
+// emailVerifyExpires: tokens older than 24 hours are auto-deleted
+userSchema.index(
+  { passwordResetExpires: 1 },
+  { expireAfterSeconds: 0, sparse: true }
+);
+userSchema.index(
+  { emailVerifyExpires: 1 },
+  { expireAfterSeconds: 0, sparse: true }
+);
+
 // ── Pre-save: hash password ───────────────────────────────────────────────────
 // Mongoose v9 async pre-hooks do NOT receive next — use return/await pattern
 userSchema.pre('save', async function () {
@@ -166,3 +184,4 @@ userSchema.methods.resetFailedLogin = async function () {
 
 const User = mongoose.model('User', userSchema);
 module.exports = User;
+

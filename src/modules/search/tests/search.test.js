@@ -730,3 +730,6 @@ describe('Global search — combined results', () => {
     expect(res.body.data.invoices.pagination.total).toBe(5);
   });
 });
+
+
+

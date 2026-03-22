@@ -110,3 +110,4 @@ consentLogSchema.index(
 
 const ConsentLog = mongoose.model('ConsentLog', consentLogSchema);
 module.exports = { ConsentLog, VALID_CONSENT_TYPES, VALID_CONSENT_ACTIONS, VALID_CONSENT_SOURCES };
+
