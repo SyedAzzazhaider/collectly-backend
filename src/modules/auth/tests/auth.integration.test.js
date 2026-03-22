@@ -44,7 +44,7 @@ const existingUserFixture = {
   name:            'Existing User',
   email:           'existing@collectly.dev',
   password:        'SecurePass@123',
-  confirmPassword: 'SecurePass@123',
+  confirmPassword: 'SecurePass@123', tosAccepted: true,
 };
 
 // ── Setup / Teardown ──────────────────────────────────────────────────────────
@@ -217,7 +217,7 @@ describe('Session management — multi-device integration', () => {
     name:            'Session User',
     email:           'session@collectly.dev',
     password:        'SecurePass@123',
-    confirmPassword: 'SecurePass@123',
+    confirmPassword: 'SecurePass@123', tosAccepted: true,
   };
 
   it('should allow multiple concurrent sessions up to cap', async () => {

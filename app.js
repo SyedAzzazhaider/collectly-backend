@@ -50,8 +50,21 @@ app.use(helmet({
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
 
+const getAllowedOrigins = () => {
+  const origins = [];
+  if (process.env.FRONTEND_URL)     origins.push(process.env.FRONTEND_URL);
+  if (process.env.NODE_ENV !== 'production') origins.push('http://localhost:3000');
+  return origins;
+};
+
 app.use(cors({
-  origin:         process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, Postman, server-to-server)
+    if (!origin) return callback(null, true);
+    const allowed = getAllowedOrigins();
+    if (allowed.includes(origin)) return callback(null, true);
+    return callback(new Error(`CORS: origin ${origin} not allowed`));
+  },
   credentials:    true,
   methods:        ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -136,6 +149,11 @@ app.use('/api/v1/alerts', require('./src/modules/alerts/routes/alert.routes'));
 
 // Module J — Security & Compliance
 app.use('/api/v1/compliance', require('./src/modules/compliance/routes/compliance.routes'));
+// Audit Logs
+app.use('/api/v1/audit-logs', require('./src/shared/routes/auditLog.routes'));
+// Legal — ToS & Privacy Policy
+app.use('/api/v1/legal', require('./src/shared/routes/legal.routes'));
+
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 

@@ -23,7 +23,7 @@ const {
  */
 router.post(
   '/webhooks/sendgrid',
-  express.json({ type: '*/*' }),
+  express.json({ type: 'application/json', limit: '256kb' }),
   handleSendGridWebhook
 );
 

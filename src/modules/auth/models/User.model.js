@@ -80,6 +80,19 @@ const userSchema = new mongoose.Schema(
     passwordResetExpires: { type: Date,   select: false },
 
     isActive:            { type: Boolean, default: true },
+    // ── Legal acceptance ──────────────────────────────────────────────────────────
+tosAcceptedAt: {
+  type:    Date,
+  default: null,
+},
+tosVersion: {
+  type:    String,
+  default: null,
+},
+privacyAcceptedAt: {
+  type:    Date,
+  default: null,
+},
     lockedUntil:         { type: Date,    default: null },
     failedLoginAttempts: { type: Number,  default: 0 },
 

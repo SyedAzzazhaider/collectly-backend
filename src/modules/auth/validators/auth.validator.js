@@ -56,6 +56,11 @@ const validateSignup = (req, res, next) => {
       errors.confirmPassword = 'Passwords do not match';
     }
 
+    // Terms of Service acceptance
+    if (!req.body.tosAccepted || req.body.tosAccepted !== true) {
+      errors.tosAccepted = 'You must accept the Terms of Service and Privacy Policy to register';
+    }
+
     if (Object.keys(errors).length > 0) {
       return next(validationError('Signup validation failed', errors));
     }

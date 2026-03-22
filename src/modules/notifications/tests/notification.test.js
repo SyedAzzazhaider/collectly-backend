@@ -24,12 +24,12 @@ const { connectTestDB, clearTestDB, closeTestDB } = require('./setupTestDB');
 
 const ownerFixture = {
   name: 'Notif Owner', email: 'notifowner@test.dev',
-  password: 'SecurePass@123', confirmPassword: 'SecurePass@123',
+  password: 'SecurePass@123', confirmPassword: 'SecurePass@123', tosAccepted: true,
 };
 
 const agentFixture = {
   name: 'Notif Agent', email: 'notifagent@test.dev',
-  password: 'SecurePass@123', confirmPassword: 'SecurePass@123',
+  password: 'SecurePass@123', confirmPassword: 'SecurePass@123', tosAccepted: true,
 };
 
 const validEmailNotif = {

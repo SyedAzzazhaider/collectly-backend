@@ -25,17 +25,17 @@ const { connectTestDB, clearTestDB, closeTestDB } = require('./setupTestDB');
 
 const ownerFixture = {
   name: 'Alert Owner', email: 'alertowner@test.dev',
-  password: 'SecurePass@123', confirmPassword: 'SecurePass@123',
+  password: 'SecurePass@123', confirmPassword: 'SecurePass@123', tosAccepted: true,
 };
 
 const agentFixture = {
   name: 'Alert Agent', email: 'alertagent@test.dev',
-  password: 'SecurePass@123', confirmPassword: 'SecurePass@123',
+  password: 'SecurePass@123', confirmPassword: 'SecurePass@123', tosAccepted: true,
 };
 
 const adminFixture = {
   name: 'Alert Admin', email: 'alertadmin@test.dev',
-  password: 'SecurePass@123', confirmPassword: 'SecurePass@123',
+  password: 'SecurePass@123', confirmPassword: 'SecurePass@123', tosAccepted: true,
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

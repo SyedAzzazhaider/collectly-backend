@@ -3,6 +3,7 @@
 const authService = require('../services/auth.service');
 const AppError    = require('../../../shared/errors/AppError');
 const logger      = require('../../../shared/utils/logger');
+const { createAuditLog, auditFromReq } = require('../../../shared/utils/audit.util');
 
 // ── Meta extractor ────────────────────────────────────────────────────────────
 
@@ -36,6 +37,13 @@ const signup = async (req, res, next) => {
 
     const result = await authService.signup({ name, email, password }, res, meta);
 
+    await createAuditLog('user.signup', {
+      ...auditFromReq(req),
+      userId:       result.user._id,
+      resourceType: 'user',
+      resourceId:   result.user._id,
+    });
+
     sendSuccess(res, 201, 'Account created successfully.', {
       user:        result.user,
       accessToken: result.accessToken,
@@ -62,6 +70,13 @@ const login = async (req, res, next) => {
         userId:        result.userId,
       });
     }
+
+    await createAuditLog('user.login', {
+      ...auditFromReq(req),
+      userId:       result.user._id,
+      resourceType: 'user',
+      resourceId:   result.user._id,
+    });
 
     sendSuccess(res, 200, 'Login successful.', {
       user:        result.user,
@@ -100,6 +115,13 @@ const logout = async (req, res, next) => {
       req.cookies?.collectly_refresh || req.body?.refreshToken;
 
     await authService.logout(userId, plainRefreshToken, res);
+
+    await createAuditLog('user.logout', {
+      ...auditFromReq(req),
+      userId:       req.user.id,
+      resourceType: 'user',
+      resourceId:   req.user.id,
+    });
 
     sendSuccess(res, 200, 'Logged out successfully.');
   } catch (err) {

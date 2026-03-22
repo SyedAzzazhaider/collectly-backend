@@ -25,22 +25,22 @@ const { connectTestDB, clearTestDB, closeTestDB } = require('./setupTestDB');
 
 const ownerFixture = {
   name: 'Dashboard Owner', email: 'dashowner@test.dev',
-  password: 'SecurePass@123', confirmPassword: 'SecurePass@123',
+  password: 'SecurePass@123', confirmPassword: 'SecurePass@123', tosAccepted: true,
 };
 
 const agentFixture = {
   name: 'Dashboard Agent', email: 'dashagent@test.dev',
-  password: 'SecurePass@123', confirmPassword: 'SecurePass@123',
+  password: 'SecurePass@123', confirmPassword: 'SecurePass@123', tosAccepted: true,
 };
 
 const accountantFixture = {
   name: 'Dashboard Accountant', email: 'dashaccountant@test.dev',
-  password: 'SecurePass@123', confirmPassword: 'SecurePass@123',
+  password: 'SecurePass@123', confirmPassword: 'SecurePass@123', tosAccepted: true,
 };
 
 const adminFixture = {
   name: 'Dashboard Admin', email: 'dashadmin@test.dev',
-  password: 'SecurePass@123', confirmPassword: 'SecurePass@123',
+  password: 'SecurePass@123', confirmPassword: 'SecurePass@123', tosAccepted: true,
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

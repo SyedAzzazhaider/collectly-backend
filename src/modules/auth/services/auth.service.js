@@ -110,6 +110,9 @@ const signup = async ({ name, email, password }, res, meta = {}) => {
     role:             'owner',
     subscriptionPlan: 'starter',
     oauthProvider:    'local',
+    tosAcceptedAt:     new Date(),
+    tosVersion:        '1.0',
+    privacyAcceptedAt: new Date(),
   });
 
   logger.info(`New user registered: ${user.email} [${user._id}]`);

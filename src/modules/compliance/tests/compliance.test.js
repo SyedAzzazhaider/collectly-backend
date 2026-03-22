@@ -25,22 +25,22 @@ const { connectTestDB, clearTestDB, closeTestDB } = require('./setupTestDB');
 
 const ownerFixture = {
   name: 'Compliance Owner', email: 'compowner@test.dev',
-  password: 'SecurePass@123', confirmPassword: 'SecurePass@123',
+  password: 'SecurePass@123', confirmPassword: 'SecurePass@123', tosAccepted: true,
 };
 
 const agentFixture = {
   name: 'Compliance Agent', email: 'compagent@test.dev',
-  password: 'SecurePass@123', confirmPassword: 'SecurePass@123',
+  password: 'SecurePass@123', confirmPassword: 'SecurePass@123', tosAccepted: true,
 };
 
 const adminFixture = {
   name: 'Compliance Admin', email: 'compadmin@test.dev',
-  password: 'SecurePass@123', confirmPassword: 'SecurePass@123',
+  password: 'SecurePass@123', confirmPassword: 'SecurePass@123', tosAccepted: true,
 };
 
 const otherOwnerFixture = {
   name: 'Other Owner', email: 'otherowner@test.dev',
-  password: 'SecurePass@123', confirmPassword: 'SecurePass@123',
+  password: 'SecurePass@123', confirmPassword: 'SecurePass@123', tosAccepted: true,
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

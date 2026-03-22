@@ -24,12 +24,12 @@ const { connectTestDB, clearTestDB, closeTestDB } = require('./setupTestDB');
 
 const ownerFixture = {
   name: 'Conv Owner', email: 'convowner@test.dev',
-  password: 'SecurePass@123', confirmPassword: 'SecurePass@123',
+  password: 'SecurePass@123', confirmPassword: 'SecurePass@123', tosAccepted: true,
 };
 
 const agentFixture = {
   name: 'Conv Agent', email: 'convagent@test.dev',
-  password: 'SecurePass@123', confirmPassword: 'SecurePass@123',
+  password: 'SecurePass@123', confirmPassword: 'SecurePass@123', tosAccepted: true,
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

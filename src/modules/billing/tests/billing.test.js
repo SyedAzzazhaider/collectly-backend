@@ -25,14 +25,14 @@ const ownerUser = {
   name:            'Billing Owner',
   email:           'billing@collectly.dev',
   password:        'SecurePass@123',
-  confirmPassword: 'SecurePass@123',
+  confirmPassword: 'SecurePass@123', tosAccepted: true,
 };
 
 const adminUser = {
   name:            'Admin User',
   email:           'admin@collectly.dev',
   password:        'SecurePass@123',
-  confirmPassword: 'SecurePass@123',
+  confirmPassword: 'SecurePass@123', tosAccepted: true,
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

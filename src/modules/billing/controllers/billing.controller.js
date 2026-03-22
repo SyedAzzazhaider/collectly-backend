@@ -3,6 +3,7 @@
 const billingService = require('../services/billing.service');
 const AppError       = require('../../../shared/errors/AppError');
 const logger         = require('../../../shared/utils/logger');
+const { createAuditLog, auditFromReq } = require('../../../shared/utils/audit.util');
 
 const sendSuccess = (res, statusCode, message, data = {}) => {
   res.status(statusCode).json({ status: 'success', message, data });
@@ -26,6 +27,14 @@ const subscribe = async (req, res, next) => {
   try {
     const { plan } = req.body;
     const billing  = await billingService.subscribe(req.user.id, plan);
+    
+    await createAuditLog('billing.subscribe', {
+      ...auditFromReq(req),
+      userId:       req.user.id,
+      resourceType: 'billing',
+      metadata:     { plan: req.body.plan },
+    });
+    
     sendSuccess(res, 200, `Successfully subscribed to the ${plan} plan.`, { billing });
   } catch (err) { next(err); }
 };
@@ -41,6 +50,13 @@ const changePlan = async (req, res, next) => {
 const cancelSubscription = async (req, res, next) => {
   try {
     const billing = await billingService.cancelSubscription(req.user.id);
+    
+    await createAuditLog('billing.cancel', {
+      ...auditFromReq(req),
+      userId:       req.user.id,
+      resourceType: 'billing',
+    });
+    
     sendSuccess(res, 200, 'Subscription will be cancelled at the end of the current billing period.', { billing });
   } catch (err) { next(err); }
 };

@@ -4,6 +4,8 @@ const { Billing, PLANS } = require('../models/Billing.model');
 const User               = require('../../auth/models/User.model');
 const AppError           = require('../../../shared/errors/AppError');
 const logger             = require('../../../shared/utils/logger');
+const { PaymentPlan } = require('../../conversations/models/PaymentPlan.model');
+const { Invoice }     = require('../../customers/models/Invoice.model');
 
 // ── Lazy Stripe initialization ─────────────────────────────────────────────────
 let _stripe = null;
@@ -446,6 +448,63 @@ const handleStripeWebhook = async (rawBody, signature) => {
   logger.info(`Stripe webhook received: ${event.type}`);
 
   switch (event.type) {
+
+    case 'checkout.session.completed': {
+      const session = event.data.object;
+
+      // Only process payment plan installment payments
+      const { planId, installmentNumber, userId } = session.metadata || {};
+      if (!planId || !installmentNumber || !userId) break;
+
+      try {
+        const plan = await PaymentPlan.findOne({ _id: planId, userId });
+        if (!plan) break;
+
+        const instNum    = parseInt(installmentNumber, 10);
+        const installment = plan.installments.find(
+          (i) => i.installmentNumber === instNum
+        );
+        if (!installment || installment.status === 'paid') break;
+
+        // Mark installment as paid
+        installment.status  = 'paid';
+        installment.paidAt  = new Date();
+        installment.paidAmount = installment.amount;
+
+        // Check if all installments are paid
+        const allPaid = plan.installments.every((i) => i.status === 'paid');
+        if (allPaid) {
+          plan.status       = 'completed';
+          plan.completedAt  = new Date();
+        }
+
+        await plan.save({ validateBeforeSave: false });
+
+        // Update invoice status
+        const totalPaid = plan.installments
+          .filter((i) => i.status === 'paid')
+          .reduce((sum, i) => sum + i.amount, 0);
+
+        const invoice = await Invoice.findById(plan.invoiceId);
+        if (invoice) {
+          invoice.amountPaid = Math.min(totalPaid, invoice.amount);
+          if (invoice.amountPaid >= invoice.amount) {
+            invoice.status = 'paid';
+            invoice.paidAt = new Date();
+          } else {
+            invoice.status = 'partial';
+          }
+          await invoice.save({ validateBeforeSave: false });
+        }
+
+        logger.info(
+          `Stripe payment link paid: planId=${planId} installment=${instNum} userId=${userId}`
+        );
+      } catch (err) {
+        logger.error(`checkout.session.completed handling error: ${err.message}`);
+      }
+      break;
+    }
 
     case 'invoice.payment_succeeded': {
       const invoice      = event.data.object;
