@@ -4,7 +4,7 @@ const invoiceService = require('../services/invoice.service');
 const AppError       = require('../../../shared/errors/AppError');
 const { getSignedDownloadUrl } = require('../../../shared/utils/s3.util');
 const { createAuditLog, auditFromReq } = require('../../../shared/utils/audit.util');
-
+const logger = require('../../../shared/utils/logger');
 const sendSuccess = (res, statusCode, message, data = {}) =>
   res.status(statusCode).json({ status: 'success', message, data });
 
@@ -27,6 +27,12 @@ const createInvoice = async (req, res, next) => {
   try {
     const invoice = await invoiceService.createInvoice(req.user.id, req.body);
     sendSuccess(res, 201, 'Invoice created successfully.', { invoice });
+    createAuditLog('invoice.create', {
+      ...auditFromReq(req),
+      userId:       req.user.id,
+      resourceType: 'invoice',
+      resourceId:   invoice._id,
+    }).catch((err) => logger.warn(`Audit log failed: ${err.message}`));
   } catch (err) { next(err); }
 };
 
@@ -83,6 +89,12 @@ const updateInvoice = async (req, res, next) => {
   try {
     const invoice = await invoiceService.updateInvoice(req.user.id, req.params.id, req.body);
     sendSuccess(res, 200, 'Invoice updated successfully.', { invoice });
+    createAuditLog('invoice.update', {
+      ...auditFromReq(req),
+      userId:       req.user.id,
+      resourceType: 'invoice',
+      resourceId:   req.params.id,
+    }).catch((err) => logger.warn(`Audit log failed: ${err.message}`));
   } catch (err) { next(err); }
 };
 
@@ -112,16 +124,14 @@ const recordPayment = async (req, res, next) => {
       req.params.id,
       req.body.amount
     );
-    
-    await createAuditLog('invoice.payment', {
+    sendSuccess(res, 200, 'Payment recorded successfully.', { invoice });
+    createAuditLog('invoice.payment', {
       ...auditFromReq(req),
       userId:       req.user.id,
       resourceType: 'invoice',
       resourceId:   req.params.id,
       metadata:     { amount: req.body.amount },
-    });
-    
-    sendSuccess(res, 200, 'Payment recorded successfully.', { invoice });
+    }).catch((err) => logger.warn(`Audit log failed: ${err.message}`));
   } catch (err) { next(err); }
 };
 
@@ -143,9 +153,8 @@ const uploadAttachment = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// ── DELETE /invoices/:id/attachments/:index — remove attachment ───────────────
-
-const removeAttachment = async (req, res, next) => {
+// ── DELETE /invoices/:id/attachments/:index 
+const    removeAttachment = async (req, res, next) => {
   try {
     const invoice = await invoiceService.removeAttachment(
       req.user.id,
@@ -155,6 +164,7 @@ const removeAttachment = async (req, res, next) => {
     sendSuccess(res, 200, 'Attachment removed successfully.', { invoice });
   } catch (err) { next(err); }
 };
+
 
 // ── GET /invoices/:id/attachments/:index/download — signed URL ────────────────
 

@@ -9,53 +9,35 @@ const PORT = process.env.PORT || 5000;
 
 // ── Scheduler config ──────────────────────────────────────────────────────────
 
-const SCHEDULER_ENABLED       = process.env.SCHEDULER_ENABLED !== 'false' &&
-                                 process.env.NODE_ENV !== 'test';
-const SCHEDULER_INTERVAL_MS   = parseInt(process.env.SCHEDULER_INTERVAL_MS,   10) || 5 * 60 * 1000;
-const SCHEDULER_BATCH_SIZE    = parseInt(process.env.SCHEDULER_BATCH_SIZE,    10) || 100;
-const SUBSCRIPTION_CHECK_MS   = 60 * 60 * 1000;   // 1 hour
-// FEAT-05: retry failed/scheduled notifications every 10 minutes
-const NOTIFICATION_RETRY_MS   = parseInt(process.env.NOTIFICATION_RETRY_MS,   10) || 10 * 60 * 1000;
+const SCHEDULER_ENABLED        = process.env.SCHEDULER_ENABLED !== 'false' &&
+                                  process.env.NODE_ENV !== 'test';
+const SCHEDULER_INTERVAL_MS    = parseInt(process.env.SCHEDULER_INTERVAL_MS,    10) || 5 * 60 * 1000;
+const SCHEDULER_BATCH_SIZE     = parseInt(process.env.SCHEDULER_BATCH_SIZE,     10) || 100;
+const SUBSCRIPTION_CHECK_MS    = 60 * 60 * 1000;
+const NOTIFICATION_RETRY_MS    = parseInt(process.env.NOTIFICATION_RETRY_MS,    10) || 10 * 60 * 1000;
 const NOTIFICATION_RETRY_BATCH = parseInt(process.env.NOTIFICATION_RETRY_BATCH, 10) || 50;
 
-let reminderTimer      = null;
-let subscriptionTimer  = null;
-let notificationTimer  = null;
-let batchRunning       = false;
+let reminderTimer     = null;
+let subscriptionTimer = null;
+let notificationTimer = null;
+let batchRunning      = false;
 
 const startSchedulers = async () => {
   if (!SCHEDULER_ENABLED) {
     logger.info('Schedulers disabled (NODE_ENV=test or SCHEDULER_ENABLED=false)');
     return;
   }
-  const reminderEngine   = require('./src/modules/sequences/services/reminderEngine.service');
-  const alertService     = require('./src/modules/alerts/services/alert.service');
-  const deliveryService  = require('./src/modules/notifications/services/delivery.service');
+
+  const reminderEngine  = require('./src/modules/sequences/services/reminderEngine.service');
+  const alertService    = require('./src/modules/alerts/services/alert.service');
+  const deliveryService = require('./src/modules/notifications/services/delivery.service');
   const { getReminderQueue, getNotificationQueue } = require('./src/shared/utils/queue.util');
 
   // ── Initialize Bull queues if Redis is configured ─────────────────────────
-  // Queues are used for distributed scheduling when Redis is provisioned.
-  // Falls back to setInterval when Redis is not available.
   const reminderQueue     = getReminderQueue();
   const notificationQueue = getNotificationQueue();
 
-  if (reminderQueue) {
-    reminderQueue.process(async (job) => {
-      await runReminderBatch();
-      return { done: true };
-    });
-    logger.info('Bull reminder queue processor registered');
-  }
-
-  if (notificationQueue) {
-    notificationQueue.process(async (job) => {
-      await runNotificationRetry();
-      return { done: true };
-    });
-    logger.info('Bull notification queue processor registered');
-  }
-
-  // ── Reminder batch ──────────────────────────────────────────────────────────
+  // ── Reminder batch ────────────────────────────────────────────────────────
   const runReminderBatch = async () => {
     if (batchRunning) {
       logger.warn('Scheduler: previous batch still running — skipping this tick');
@@ -76,7 +58,7 @@ const startSchedulers = async () => {
     }
   };
 
-  // ── Subscription expiry check ───────────────────────────────────────────────
+  // ── Subscription expiry check ─────────────────────────────────────────────
   const runSubscriptionCheck = async () => {
     try {
       const result = await alertService.checkSubscriptionExpiry();
@@ -88,10 +70,7 @@ const startSchedulers = async () => {
     }
   };
 
-  // ── FEAT-05: Notification retry / scheduled delivery ───────────────────────
-  // Processes failed notifications with backoff and future-scheduled notifications
-  // that are now due. This replaces the manual-only admin endpoint as the primary
-  // automated retry mechanism.
+  // ── Notification retry / scheduled delivery ───────────────────────────────
   const runNotificationRetry = async () => {
     try {
       const result = await deliveryService.retryFailedNotifications(NOTIFICATION_RETRY_BATCH);
@@ -105,25 +84,48 @@ const startSchedulers = async () => {
     }
   };
 
-  // ── Schedule Bull queue jobs if queues are active ─────────────────────────
+  // ── Register Bull queue processors ───────────────────────────────────────
+  // Registered AFTER function definitions — avoids hoisting issues
   if (reminderQueue) {
-    await reminderQueue.add({}, { repeat: { every: SCHEDULER_INTERVAL_MS } });
-    logger.info(`Bull reminder queue scheduled — interval: ${SCHEDULER_INTERVAL_MS / 1000}s`);
+    reminderQueue.process(async (job) => {
+      await runReminderBatch();
+      return { done: true };
+    });
+    logger.info('Bull reminder queue processor registered');
   }
 
   if (notificationQueue) {
-    await notificationQueue.add({}, { repeat: { every: NOTIFICATION_RETRY_MS } });
-    logger.info(`Bull notification queue scheduled — interval: ${NOTIFICATION_RETRY_MS / 1000}s`);
+    notificationQueue.process(async (job) => {
+      await runNotificationRetry();
+      return { done: true };
+    });
+    logger.info('Bull notification queue processor registered');
   }
 
-  // 30-second warm-up before first runs (let DB connection settle)
-  setTimeout(runReminderBatch,     30 * 1000);
+  // ── 30-second warm-up before first runs (let DB connection settle) ────────
+  // Bull queue jobs are also scheduled here — after MongoDB is confirmed ready
+  setTimeout(async () => {
+    if (reminderQueue) {
+      await reminderQueue.add({}, { repeat: { every: SCHEDULER_INTERVAL_MS } }).catch(
+        (err) => logger.warn(`Bull reminder schedule failed: ${err.message}`)
+      );
+      logger.info(`Bull reminder queue scheduled — interval: ${SCHEDULER_INTERVAL_MS / 1000}s`);
+    }
+    if (notificationQueue) {
+      await notificationQueue.add({}, { repeat: { every: NOTIFICATION_RETRY_MS } }).catch(
+        (err) => logger.warn(`Bull notification schedule failed: ${err.message}`)
+      );
+      logger.info(`Bull notification queue scheduled — interval: ${NOTIFICATION_RETRY_MS / 1000}s`);
+    }
+    runReminderBatch();
+  }, 30 * 1000);
+
   setTimeout(runSubscriptionCheck, 60 * 1000);
-  setTimeout(runNotificationRetry, 90 * 1000);  // FEAT-05
+  setTimeout(runNotificationRetry, 90 * 1000);
 
   reminderTimer     = setInterval(runReminderBatch,     SCHEDULER_INTERVAL_MS);
   subscriptionTimer = setInterval(runSubscriptionCheck, SUBSCRIPTION_CHECK_MS);
-  notificationTimer = setInterval(runNotificationRetry, NOTIFICATION_RETRY_MS);  // FEAT-05
+  notificationTimer = setInterval(runNotificationRetry, NOTIFICATION_RETRY_MS);
 
   logger.info(`Reminder scheduler started — interval: ${SCHEDULER_INTERVAL_MS / 1000}s, batch: ${SCHEDULER_BATCH_SIZE}`);
   logger.info('Subscription expiry scheduler started — interval: 1h');
@@ -133,7 +135,7 @@ const startSchedulers = async () => {
 const stopSchedulers = () => {
   if (reminderTimer)     { clearInterval(reminderTimer);     reminderTimer     = null; }
   if (subscriptionTimer) { clearInterval(subscriptionTimer); subscriptionTimer = null; }
-  if (notificationTimer) { clearInterval(notificationTimer); notificationTimer = null; }  // FEAT-05
+  if (notificationTimer) { clearInterval(notificationTimer); notificationTimer = null; }
   logger.info('Schedulers stopped');
 };
 
@@ -141,6 +143,16 @@ const stopSchedulers = () => {
 
 const startServer = async () => {
   await connectDB();
+
+  // ── Production startup validation ──────────────────────────────────────────
+  if (process.env.NODE_ENV === 'production') {
+    const required = ['FRONTEND_URL', 'MONGO_URI', 'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET', 'APP_ENCRYPTION_KEY'];
+    const missing  = required.filter((key) => !process.env[key]);
+    if (missing.length > 0) {
+      logger.error(`CRITICAL: Missing required environment variables: ${missing.join(', ')}`);
+      process.exit(1);
+    }
+  }
 
   const server = app.listen(PORT, () => {
     logger.info(`Collectly API running on port ${PORT} [${process.env.NODE_ENV}]`);

@@ -52,10 +52,18 @@ app.use(helmet({
 
 const getAllowedOrigins = () => {
   const origins = [];
-  if (process.env.FRONTEND_URL)     origins.push(process.env.FRONTEND_URL);
+  if (process.env.FRONTEND_URL) origins.push(process.env.FRONTEND_URL);
   if (process.env.NODE_ENV !== 'production') origins.push('http://localhost:3000');
+
+  // Production safety guard — if no origin configured, log critical warning
+  // but do not crash. Returns wildcard-blocked state.
+  if (process.env.NODE_ENV === 'production' && origins.length === 0) {
+    logger.error('CRITICAL: FRONTEND_URL is not set in production. All CORS requests will be rejected.');
+  }
+
   return origins;
 };
+
 
 app.use(cors({
   origin: (origin, callback) => {

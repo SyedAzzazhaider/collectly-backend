@@ -1,9 +1,11 @@
 'use strict';
 
-const sequenceService      = require('../services/sequence.service');
-const schedulerService     = require('../services/scheduler.service');
+const sequenceService       = require('../services/sequence.service');
+const schedulerService      = require('../services/scheduler.service');
 const reminderEngineService = require('../services/reminderEngine.service');
-const AppError             = require('../../../shared/errors/AppError');
+const AppError              = require('../../../shared/errors/AppError');
+const { createAuditLog, auditFromReq } = require('../../../shared/utils/audit.util');
+const logger                = require('../../../shared/utils/logger');
 
 const sendSuccess = (res, statusCode, message, data = {}) =>
   res.status(statusCode).json({ status: 'success', message, data });
@@ -25,6 +27,12 @@ const createSequence = async (req, res, next) => {
   try {
     const sequence = await sequenceService.createSequence(req.user.id, req.body);
     sendSuccess(res, 201, 'Sequence created successfully.', { sequence });
+    createAuditLog('sequence.create', {
+      ...auditFromReq(req),
+      userId:       req.user.id,
+      resourceType: 'sequence',
+      resourceId:   sequence._id,
+    }).catch((err) => logger.warn(`Audit log failed: ${err.message}`));
   } catch (err) { next(err); }
 };
 
@@ -73,6 +81,12 @@ const updateSequence = async (req, res, next) => {
   try {
     const sequence = await sequenceService.updateSequence(req.user.id, req.params.id, req.body);
     sendSuccess(res, 200, 'Sequence updated successfully.', { sequence });
+    createAuditLog('sequence.update', {
+      ...auditFromReq(req),
+      userId:       req.user.id,
+      resourceType: 'sequence',
+      resourceId:   req.params.id,
+    }).catch((err) => logger.warn(`Audit log failed: ${err.message}`));
   } catch (err) { next(err); }
 };
 
@@ -82,6 +96,12 @@ const deleteSequence = async (req, res, next) => {
   try {
     const result = await sequenceService.deleteSequence(req.user.id, req.params.id);
     sendSuccess(res, 200, 'Sequence deleted successfully.', result);
+    createAuditLog('sequence.delete', {
+      ...auditFromReq(req),
+      userId:       req.user.id,
+      resourceType: 'sequence',
+      resourceId:   req.params.id,
+    }).catch((err) => logger.warn(`Audit log failed: ${err.message}`));
   } catch (err) { next(err); }
 };
 
@@ -119,6 +139,13 @@ const assignSequence = async (req, res, next) => {
       req.user.id
     );
     sendSuccess(res, 200, 'Sequence assigned to invoice successfully.', result);
+    createAuditLog('sequence.assign', {
+      ...auditFromReq(req),
+      userId:       req.user.id,
+      resourceType: 'sequence',
+      resourceId:   sequenceId,
+      metadata:     { invoiceId },
+    }).catch((err) => logger.warn(`Audit log failed: ${err.message}`));
   } catch (err) { next(err); }
 };
 
@@ -213,9 +240,9 @@ const sendImmediateReminder = async (req, res, next) => {
       req.user.id,
       req.params.invoiceId,
       {
-        channels:   req.body.channels   || null,
-        message:    req.body.message    || null,
-        phaseType:  req.body.phaseType  || 'first-overdue',
+        channels:  req.body.channels  || null,
+        message:   req.body.message   || null,
+        phaseType: req.body.phaseType || 'first-overdue',
       }
     );
     sendSuccess(res, 200, 'Immediate reminder dispatched.', result);
@@ -302,4 +329,3 @@ module.exports = {
   runReminderBatch,
   getAllSequencesAdmin,
 };
-
