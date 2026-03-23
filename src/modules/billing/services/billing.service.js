@@ -1,4 +1,4 @@
-'use strict';
+ï»¿'use strict';
 
 const { Billing, PLANS } = require('../models/Billing.model');
 const User               = require('../../auth/models/User.model');
@@ -46,7 +46,7 @@ const getOrCreateStripeCustomer = async (user, billing) => {
 
 // -- Helper: attach test payment method when none exists ------------------------
 // Required in test mode because Stripe subscriptions need a payment method.
-// Uses Stripe's built-in tok_visa test token — never runs in production.
+// Uses Stripe's built-in tok_visa test token ï¿½ never runs in production.
 
 const ensureTestPaymentMethod = async (stripe, customerId) => {
   const stripeKey = process.env.STRIPE_SECRET_KEY || '';
@@ -216,7 +216,7 @@ const subscribe = async (userId, plan) => {
     billing.cancelAtPeriodEnd    = false;
 
   } else {
-    // Non-Stripe mode — development and test environments without Stripe key
+    // Non-Stripe mode ï¿½ development and test environments without Stripe key
     const now         = new Date();
     const renewalDate = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
 
@@ -507,7 +507,14 @@ const handleStripeWebhook = async (rawBody, signature) => {
     }
 
     case 'invoice.payment_succeeded': {
-      const invoice      = event.data.object;
+      const invoice = event.data.object;
+
+      // Guard â€” one-time invoices have no subscription
+      if (!invoice.subscription) {
+        logger.info('invoice.payment_succeeded â€” no subscription attached, skipping');
+        break;
+      }
+
       const subscription = await stripe.subscriptions.retrieve(invoice.subscription);
       const userId       = subscription.metadata?.userId;
       if (!userId) break;
@@ -537,7 +544,7 @@ const handleStripeWebhook = async (rawBody, signature) => {
       });
 
       await billing.save({ validateBeforeSave: false });
-      logger.info(`Payment succeeded — billing renewed for user: ${userId}`);
+      logger.info(`Payment succeeded ï¿½ billing renewed for user: ${userId}`);
       break;
     }
 
