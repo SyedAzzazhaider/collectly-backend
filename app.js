@@ -93,6 +93,14 @@ app.use(express.json({
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(cookieParser());
 
+// MongoDB injection protection
+const mongoSanitize = require('express-mongo-sanitize');
+app.use(mongoSanitize());
+
+// HTTP Parameter Pollution protection
+const hpp = require('hpp');
+app.use(hpp());
+
 // ── MongoDB injection protection ──────────────────────────────────────────────
 // Strips $ and . from req.body, req.params, req.query to prevent operator injection
 
@@ -137,8 +145,8 @@ app.use('/api/v1/customers', require('./src/modules/customers/routes/customer.ro
 app.use('/api/v1/invoices',  require('./src/modules/customers/routes/invoice.routes'));
 
 // Module D — Sequences
-app.use('/api/v1/sequences',              require('./src/modules/sequences/routes/sequence.routes'));
 app.use('/api/v1/sequences/legal-notices', require('./src/modules/sequences/routes/legalNotice.routes'));
+app.use('/api/v1/sequences',              require('./src/modules/sequences/routes/sequence.routes'));
 
 // Module E — Notifications & Delivery
 app.use('/api/v1/notifications', require('./src/modules/notifications/routes/notification.routes'));

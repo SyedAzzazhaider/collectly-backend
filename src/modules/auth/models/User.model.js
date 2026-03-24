@@ -169,7 +169,8 @@ userSchema.methods.isLocked = function () {
 userSchema.methods.incrementFailedLogin = async function () {
   this.failedLoginAttempts += 1;
   if (this.failedLoginAttempts >= 5) {
-    this.lockedUntil = new Date(Date.now() + 15 * 60 * 1000);
+    const lockoutMinutes = parseInt(process.env.ACCOUNT_LOCKOUT_MINUTES, 10) || 15;
+    this.lockedUntil = new Date(Date.now() + lockoutMinutes * 60 * 1000);
   }
   await this.save({ validateBeforeSave: false });
 };

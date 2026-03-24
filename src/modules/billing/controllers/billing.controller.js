@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const billingService = require('../services/billing.service');
 const AppError       = require('../../../shared/errors/AppError');
@@ -43,6 +43,12 @@ const changePlan = async (req, res, next) => {
   try {
     const { plan } = req.body;
     const billing  = await billingService.changePlan(req.user.id, plan);
+    
+    await createAuditLog('billing.plan_change', {
+      ...auditFromReq(req),
+      metadata: { plan: req.body.plan },
+    });
+    
     sendSuccess(res, 200, `Plan changed to ${plan} successfully.`, { billing });
   } catch (err) { next(err); }
 };
@@ -64,6 +70,9 @@ const cancelSubscription = async (req, res, next) => {
 const reactivateSubscription = async (req, res, next) => {
   try {
     const billing = await billingService.reactivateSubscription(req.user.id);
+    
+    await createAuditLog('billing.reactivate', { ...auditFromReq(req) });
+    
     sendSuccess(res, 200, 'Subscription reactivated successfully.', { billing });
   } catch (err) { next(err); }
 };
@@ -142,4 +151,3 @@ module.exports = {
   stripeWebhook,
   getAllBillingAdmin,
 };
-

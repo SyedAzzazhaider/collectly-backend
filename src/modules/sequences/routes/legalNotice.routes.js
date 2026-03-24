@@ -42,6 +42,10 @@ router.post(
   restrictTo('owner', 'admin', 'agent'),
   legalNoticeController.previewTemplate
 );
-
+router.post(
+  '/:id/send',
+  restrictTo('owner', 'admin', 'agent'),
+  legalNoticeController.sendLegalNotice
+);
 module.exports = router;
 

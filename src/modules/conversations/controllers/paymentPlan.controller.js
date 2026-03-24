@@ -130,12 +130,13 @@ const recordInstallmentPayment = async (req, res, next) => {
 // POST /conversations/payment-plans/:id/installments/:installmentNumber/payment-link
 const generatePaymentLink = async (req, res, next) => {
   try {
-    // Stripe payment links are a deferred feature (v1.1 milestone).
-    // Return a structured stub so the route exists and tests do not 404.
-    sendSuccess(res, 200, 'Payment link generation is not yet configured.', {
-      paymentLink: null,
-      message:     'Configure STRIPE_SECRET_KEY to enable payment links.',
-    });
+    const { id, installmentNumber } = req.params;
+    const result = await paymentPlanService.generatePaymentLink(
+      req.user.id,
+      id,
+      Number(installmentNumber)
+    );
+    sendSuccess(res, 200, 'Payment link generated successfully.', result);
   } catch (err) { next(err); }
 };
 

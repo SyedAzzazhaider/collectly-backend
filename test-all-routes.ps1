@@ -1,6 +1,6 @@
 ﻿$BASE_URL = "https://collectly-backend-4d5f.onrender.com"
-$EMAIL    = "test@collectly.dev"
-$PASSWORD = "SecurePass@123"
+$EMAIL = "your-@gmail.com.com"
+$PASSWORD = "Secure-password-put-there"
 $pass = 0
 $fail = 0
 function Green($msg)  { Write-Host $msg -ForegroundColor Green }

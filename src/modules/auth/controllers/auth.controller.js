@@ -141,6 +141,8 @@ const logoutAll = async (req, res, next) => {
 
     await authService.logoutAll(userId, res);
 
+    await createAuditLog('user.logout_all', { ...auditFromReq(req) });
+
     sendSuccess(res, 200, 'Logged out from all devices successfully.');
   } catch (err) {
     next(err);
@@ -176,6 +178,8 @@ const setup2FA = async (req, res, next) => {
     }
 
     const result = await authService.setup2FA(userId);
+
+    await createAuditLog('user.2fa_enable', { ...auditFromReq(req) });
 
     sendSuccess(res, 200, '2FA setup initiated. Scan the QR code with your authenticator app.', {
       qrCode:     result.qrCode,
@@ -254,6 +258,8 @@ const disable2FA = async (req, res, next) => {
 
     await authService.disable2FA(userId, totpCode);
 
+    await createAuditLog('user.2fa_disable', { ...auditFromReq(req) });
+
     sendSuccess(res, 200, '2FA has been disabled on your account.');
   } catch (err) {
     next(err);
@@ -299,6 +305,9 @@ const changePassword = async (req, res, next) => {
   try {
     const { currentPassword, newPassword } = req.body;
     await authService.changePassword(req.user.id, currentPassword, newPassword);
+    
+    await createAuditLog('user.password_change', { ...auditFromReq(req) });
+    
     sendSuccess(res, 200, 'Password changed successfully. Please log in again on all devices.');
   } catch (err) { next(err); }
 };
@@ -321,6 +330,9 @@ const resetPassword = async (req, res, next) => {
     const { token }                   = req.params;
     const { newPassword }             = req.body;
     const result = await authService.resetPassword(token, newPassword, res);
+    
+    await createAuditLog('user.password_reset', { ...auditFromReq(req) });
+    
     sendSuccess(res, 200, 'Password reset successful. You are now logged in.', {
       accessToken: result.accessToken,
     });
@@ -341,6 +353,9 @@ const sendVerificationEmail = async (req, res, next) => {
 const verifyEmail = async (req, res, next) => {
   try {
     await authService.verifyEmail(req.params.token);
+    
+    await createAuditLog('user.email_verify', { ...auditFromReq(req) });
+    
     sendSuccess(res, 200, 'Email verified successfully.');
   } catch (err) { next(err); }
 };
@@ -365,4 +380,3 @@ module.exports = {
   sendVerificationEmail,
   verifyEmail,
 };
-

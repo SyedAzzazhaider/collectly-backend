@@ -138,6 +138,51 @@ const previewTemplate = async (userId, templateId, context = {}) => {
   };
 };
 
+// ── Send legal notice to customer ─────────────────────────────────────────────
+
+const sendLegalNotice = async (userId, templateId, { customerId, invoiceId, channel = 'email' }) => {
+  const Customer        = require('../../customers/models/Customer.model');
+  const Invoice         = require('../../customers/models/Invoice.model');
+  const deliveryService = require('../../notifications/services/delivery.service');
+
+  const template = await getTemplate(userId, templateId);
+  const customer = await Customer.findOne({ _id: customerId, userId });
+  if (!customer) throw new AppError('Customer not found.', 404, 'CUSTOMER_NOT_FOUND');
+
+  let invoice = null;
+  if (invoiceId) invoice = await Invoice.findOne({ _id: invoiceId, userId });
+
+  const context = {
+    customerName:  customer.name,
+    invoiceNumber: invoice?.invoiceNumber || '',
+    amount:        invoice?.amount        ? String(invoice.amount) : '',
+    dueDate:       invoice?.dueDate       ? new Date(invoice.dueDate).toLocaleDateString() : '',
+    companyName:   customer.company       || '',
+    agentName:     '',
+  };
+
+  const renderedSubject = renderTemplate(template.subject, context);
+  const renderedBody    = renderTemplate(template.body,    context);
+
+  const notification = await deliveryService.sendNotification(userId, {
+    channel,
+    type:      'legal_notice',
+    recipient: {
+      name:  customer.name,
+      email: channel === 'email' ? customer.email : null,
+      phone: ['sms', 'whatsapp'].includes(channel) ? customer.phone : null,
+    },
+    subject:    renderedSubject,
+    body:       renderedBody,
+    customerId: String(customerId),
+    invoiceId:  invoiceId ? String(invoiceId) : null,
+    metadata:   { templateId: String(templateId), templateName: template.name },
+  });
+
+  logger.info(`Legal notice sent: templateId=${templateId} customerId=${customerId} channel=${channel}`);
+  return { notification, renderedSubject, renderedBody };
+};
+
 module.exports = {
   createTemplate,
   listTemplates,
@@ -146,6 +191,6 @@ module.exports = {
   deleteTemplate,
   previewTemplate,
   renderTemplate,
+  sendLegalNotice,
   SUPPORTED_VARIABLES,
 };
-

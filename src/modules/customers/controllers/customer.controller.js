@@ -85,6 +85,11 @@ const getCustomerSummary = async (req, res, next) => {
 const updateCustomer = async (req, res, next) => {
   try {
     const customer = await customerService.updateCustomer(req.user.id, req.params.id, req.body);
+    createAuditLog('customer.update', {
+      ...auditFromReq(req),
+      resourceType: 'Customer',
+      resourceId:   req.params.id,
+    });
     sendSuccess(res, 200, 'Customer updated successfully.', { customer });
   } catch (err) { next(err); }
 };

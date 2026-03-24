@@ -65,6 +65,17 @@ const getSupportedVariables = (req, res) => {
   });
 };
 
+const sendLegalNotice = async (req, res, next) => {
+  try {
+    const { customerId, invoiceId, channel } = req.body;
+    if (!customerId) return next(new AppError('customerId is required.', 400));
+    const result = await legalNoticeService.sendLegalNotice(
+      req.user.id, req.params.id, { customerId, invoiceId, channel }
+    );
+    sendSuccess(res, 200, 'Legal notice sent successfully.', result);
+  } catch (err) { next(err); }
+};
+
 module.exports = {
   createTemplate,
   listTemplates,
@@ -73,5 +84,5 @@ module.exports = {
   deleteTemplate,
   previewTemplate,
   getSupportedVariables,
+  sendLegalNotice,
 };
-
