@@ -94,7 +94,7 @@ describe('POST /api/v1/auth/signup', () => {
     expect(res.status).toBe(422);
   });
 
-  it('should store hashed password in database — never plain text', async () => {
+  it('should store hashed password in database â€” never plain text', async () => {
     await request(app).post('/api/v1/auth/signup').send(validUser);
     const user = await User.findOne({ email: validUser.email }).select('+password');
     expect(user.password).toBeDefined();
@@ -174,7 +174,7 @@ describe('POST /api/v1/auth/login', () => {
 // PROTECTED ROUTES
 // -----------------------------------------------------------------------------
 
-describe('GET /api/v1/auth/me — protect middleware', () => {
+describe('GET /api/v1/auth/me â€” protect middleware', () => {
   let accessToken;
 
   beforeEach(async () => {
@@ -206,7 +206,7 @@ describe('GET /api/v1/auth/me — protect middleware', () => {
     expect(res.status).toBe(401);
   });
 
-  it('should reject token passed as query parameter — not supported', async () => {
+  it('should reject token passed as query parameter â€” not supported', async () => {
     const res = await request(app).get(`/api/v1/auth/me?token=${accessToken}`);
     expect(res.status).toBe(401);
   });
@@ -255,14 +255,14 @@ describe('POST /api/v1/auth/refresh', () => {
     const rawToken = cookie?.split(';')[0]?.replace('collectly_refresh=', '');
     expect(rawToken).toBeDefined();
 
-    // First use — valid, token is consumed and rotated
+    // First use â€” valid, token is consumed and rotated
     const first = await request(app)
       .post('/api/v1/auth/refresh')
       .send({ refreshToken: rawToken });
     expect(first.status).toBe(200);
     expect(first.body.data.accessToken).toBeDefined();
 
-    // Second use — same token is now consumed, must be rejected
+    // Second use â€” same token is now consumed, must be rejected
     const second = await request(app)
       .post('/api/v1/auth/refresh')
       .send({ refreshToken: rawToken });
@@ -270,7 +270,7 @@ describe('POST /api/v1/auth/refresh', () => {
     expect(second.body.code).toBe('INVALID_REFRESH_TOKEN');
 
     // Security guarantee: original token is permanently dead
-    // One active session exists (the rotated one from first use) — correct behavior
+    // One active session exists (the rotated one from first use) â€” correct behavior
     // per RFC 6749 refresh token rotation spec
     const user = await User.findOne({ email: 'reuse@collectly.dev' }).select('+refreshTokens');
     expect(user.refreshTokens.length).toBe(1);
@@ -278,7 +278,7 @@ describe('POST /api/v1/auth/refresh', () => {
     expect(user.refreshTokens[0].token).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it('should store refresh token as hash — never plain text in DB', async () => {
+  it('should store refresh token as hash â€” never plain text in DB', async () => {
     const signupRes = await request(app)
       .post('/api/v1/auth/signup')
       .send({ ...validUser, email: 'hashcheck@collectly.dev', confirmPassword: validUser.password });
@@ -356,7 +356,7 @@ describe('POST /api/v1/auth/logout-all', () => {
 // 2FA
 // -----------------------------------------------------------------------------
 
-describe('2FA — setup, verify, disable', () => {
+describe('2FA â€” setup, verify, disable', () => {
   let accessToken;
   const speakeasy = require('speakeasy');
 
@@ -466,7 +466,7 @@ describe('2FA — setup, verify, disable', () => {
 // SECURITY
 // -----------------------------------------------------------------------------
 
-describe('Security — token and session hardening', () => {
+describe('Security â€” token and session hardening', () => {
   it('should reject expired access token', async () => {
     const expiredToken = require('jsonwebtoken').sign(
       { id: 'fakeid', role: 'owner', subscriptionPlan: 'starter', twoFactorEnabled: false },
@@ -500,7 +500,7 @@ describe('Security — token and session hardening', () => {
     expect(res.status).toBe(401);
   });
 
-  it('should enforce session cap — max 5 concurrent refresh tokens', async () => {
+  it('should enforce session cap â€” max 5 concurrent refresh tokens', async () => {
     await request(app).post('/api/v1/auth/signup').send(validUser);
     for (let i = 0; i < 6; i++) {
       await request(app).post('/api/v1/auth/login').send(validLogin);
@@ -514,7 +514,7 @@ describe('Security — token and session hardening', () => {
 // RBAC
 // -----------------------------------------------------------------------------
 
-describe('restrictTo — role-based access control', () => {
+describe('restrictTo â€” role-based access control', () => {
   it('should attach correct default role (owner) on signup', async () => {
     const res = await request(app).post('/api/v1/auth/signup').send(validUser);
     expect(res.body.data.user.role).toBe('owner');

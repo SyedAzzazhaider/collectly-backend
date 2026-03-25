@@ -93,9 +93,15 @@ app.use(express.json({
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(cookieParser());
 
-// MongoDB injection protection
+// MongoDB injection protection — Express 5 compatible
+// express-mongo-sanitize cannot reassign req.query in Express 5 (read-only getter)
+// so we sanitize body and params directly using the sanitize() method instead
 const mongoSanitize = require('express-mongo-sanitize');
-app.use(mongoSanitize());
+app.use((req, res, next) => {
+  if (req.body)   mongoSanitize.sanitize(req.body,   { replaceWith: '_' });
+  if (req.params) mongoSanitize.sanitize(req.params, { replaceWith: '_' });
+  next();
+});
 
 // HTTP Parameter Pollution protection
 const hpp = require('hpp');

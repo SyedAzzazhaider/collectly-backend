@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * MODULE A — OAuth Integration Tests
+ * MODULE A â€” OAuth Integration Tests
  * Google & Microsoft OAuth flow simulation
  * Stack: Jest + Supertest + mongodb-memory-server
  */
@@ -24,7 +24,7 @@ const User    = require('../models/User.model');
 const authService = require('../services/auth.service');
 const { connectTestDB, clearTestDB, closeTestDB } = require('./setupTestDB');
 
-// ── Fixtures ──────────────────────────────────────────────────────────────────
+// â”€â”€ Fixtures â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const googleProfile = {
   provider:   'google',
@@ -47,17 +47,17 @@ const existingUserFixture = {
   confirmPassword: 'SecurePass@123', tosAccepted: true,
 };
 
-// ── Setup / Teardown ──────────────────────────────────────────────────────────
+// â”€â”€ Setup / Teardown â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 beforeAll(async () => { await connectTestDB(); });
 afterEach(async () => { await clearTestDB();   });
 afterAll(async ()  => { await closeTestDB();   });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// OAUTH SERVICE — Google
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// OAUTH SERVICE â€” Google
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-describe('oauthLogin service — Google', () => {
+describe('oauthLogin service â€” Google', () => {
   it('should create a new user on first Google OAuth login', async () => {
     const mockRes = { cookie: jest.fn(), clearCookie: jest.fn() };
 
@@ -96,7 +96,7 @@ describe('oauthLogin service — Google', () => {
       .post('/api/v1/auth/signup')
       .send(existingUserFixture);
 
-    // OAuth login with same email — should link, not create new account
+    // OAuth login with same email â€” should link, not create new account
     const mockRes = { cookie: jest.fn(), clearCookie: jest.fn() };
     const result  = await authService.oauthLogin(
       { ...googleProfile, email: existingUserFixture.email },
@@ -144,11 +144,11 @@ describe('oauthLogin service — Google', () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// OAUTH SERVICE — Microsoft
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// OAUTH SERVICE â€” Microsoft
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-describe('oauthLogin service — Microsoft', () => {
+describe('oauthLogin service â€” Microsoft', () => {
   it('should create a new user on first Microsoft OAuth login', async () => {
     const mockRes = { cookie: jest.fn(), clearCookie: jest.fn() };
 
@@ -189,11 +189,11 @@ describe('oauthLogin service — Microsoft', () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// OAUTH ROUTES — HTTP level
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// OAUTH ROUTES â€” HTTP level
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-describe('GET /api/v1/auth/oauth/google — route guard', () => {
+describe('GET /api/v1/auth/oauth/google â€” route guard', () => {
   it('should redirect to Google OAuth (302) when credentials configured', async () => {
     const res = await request(app).get('/api/v1/auth/oauth/google');
     // Passport redirects to Google consent screen
@@ -201,18 +201,18 @@ describe('GET /api/v1/auth/oauth/google — route guard', () => {
   });
 });
 
-describe('GET /api/v1/auth/oauth/microsoft — route guard', () => {
+describe('GET /api/v1/auth/oauth/microsoft â€” route guard', () => {
   it('should redirect to Microsoft OAuth (302) when credentials configured', async () => {
     const res = await request(app).get('/api/v1/auth/oauth/microsoft');
     expect([302, 301]).toContain(res.status);
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // SESSION MANAGEMENT INTEGRATION
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-describe('Session management — multi-device integration', () => {
+describe('Session management â€” multi-device integration', () => {
   const validUser = {
     name:            'Session User',
     email:           'session@collectly.dev',
