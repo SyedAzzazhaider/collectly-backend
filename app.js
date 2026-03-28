@@ -53,6 +53,7 @@ app.use(helmet({
 const getAllowedOrigins = () => {
   const origins = [];
   if (process.env.FRONTEND_URL) origins.push(process.env.FRONTEND_URL);
+  if (process.env.FRONTEND_URL_LOCAL) origins.push(process.env.FRONTEND_URL_LOCAL);
   if (process.env.NODE_ENV !== 'production') origins.push('http://localhost:3000');
 
   // Production safety guard — if no origin configured, log critical warning
