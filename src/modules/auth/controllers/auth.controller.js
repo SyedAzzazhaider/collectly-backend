@@ -4,8 +4,7 @@ const authService = require('../services/auth.service');
 const AppError    = require('../../../shared/errors/AppError');
 const logger      = require('../../../shared/utils/logger');
 const { createAuditLog, auditFromReq } = require('../../../shared/utils/audit.util');
-const User        = require('../../../shared/models/User.model');
-
+const User = require('../models/User.model');
 // ── Meta extractor ────────────────────────────────────────────────────────────
 
 /**
