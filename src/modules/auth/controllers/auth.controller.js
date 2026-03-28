@@ -4,6 +4,7 @@ const authService = require('../services/auth.service');
 const AppError    = require('../../../shared/errors/AppError');
 const logger      = require('../../../shared/utils/logger');
 const { createAuditLog, auditFromReq } = require('../../../shared/utils/audit.util');
+const User        = require('../../../shared/models/User.model');
 
 // ── Meta extractor ────────────────────────────────────────────────────────────
 
@@ -167,6 +168,58 @@ const getMe = async (req, res, next) => {
   }
 };
 
+// ── Update Profile ────────────────────────────────────────────────────────────
+
+const updateProfile = async (req, res, next) => {
+  try {
+    const { name, timezone, phone } = req.body;
+    const updates = {};
+    if (name !== undefined) updates.name = name.trim();
+    if (timezone !== undefined) updates.timezone = timezone;
+    if (phone !== undefined) updates.phone = phone;
+
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      { $set: updates },
+      { returnDocument: 'after', runValidators: true }
+    ).select('-password -refreshTokens -twoFactorSecret');
+
+    if (!user) return next(new AppError('User not found.', 404, 'USER_NOT_FOUND'));
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Profile updated successfully.',
+      data: { user },
+    });
+  } catch (err) { next(err); }
+};
+
+// ── Get Sessions ──────────────────────────────────────────────────────────────
+
+const getSessions = async (req, res, next) => {
+  try {
+    const userDoc = await User.findById(req.user.id).select('+refreshTokens');
+    if (!userDoc) return next(new AppError('User not found.', 404, 'USER_NOT_FOUND'));
+
+    const now = new Date();
+    const sessions = (userDoc.refreshTokens || [])
+      .filter((s) => s.expiresAt > now)
+      .map((s) => ({
+        id: s.jti,
+        ip: s.ip || null,
+        userAgent: s.userAgent || null,
+        createdAt: s.createdAt || null,
+        expiresAt: s.expiresAt || null,
+      }));
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Active sessions retrieved.',
+      data: { sessions, total: sessions.length },
+    });
+  } catch (err) { next(err); }
+};
+
 // ── 2FA Setup ─────────────────────────────────────────────────────────────────
 
 const setup2FA = async (req, res, next) => {
@@ -192,7 +245,6 @@ const setup2FA = async (req, res, next) => {
 };
 
 // ── 2FA Verify ────────────────────────────────────────────────────────────────
-
 
 // 2FA Verify
 const verify2FA = async (req, res, next) => {
@@ -237,9 +289,6 @@ const verify2FA = async (req, res, next) => {
     next(err);
   }
 };
-
-
-
 
 // ── 2FA Disable ───────────────────────────────────────────────────────────────
 
@@ -298,7 +347,6 @@ const oauthCallback = async (req, res, next) => {
   }
 };
 
-
 // ── Change Password ───────────────────────────────────────────────────────────
 
 const changePassword = async (req, res, next) => {
@@ -311,8 +359,6 @@ const changePassword = async (req, res, next) => {
     sendSuccess(res, 200, 'Password changed successfully. Please log in again on all devices.');
   } catch (err) { next(err); }
 };
-
-
 
 // ── Forgot Password ───────────────────────────────────────────────────────────
 
@@ -360,7 +406,6 @@ const verifyEmail = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-
 // ── Exports ───────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -370,6 +415,8 @@ module.exports = {
   logout,
   logoutAll,
   getMe,
+  updateProfile,
+  getSessions,
   setup2FA,
   verify2FA,
   disable2FA,
