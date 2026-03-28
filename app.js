@@ -65,13 +65,19 @@ const getAllowedOrigins = () => {
   return origins;
 };
 
-
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, Postman, server-to-server)
+    // Allow requests with no origin (mobile apps, Postman, curl, PowerShell)
     if (!origin) return callback(null, true);
+    
     const allowed = getAllowedOrigins();
     if (allowed.includes(origin)) return callback(null, true);
+    
+    // In development, allow any localhost origin for testing
+    if (process.env.NODE_ENV !== 'production' && origin && origin.match(/localhost|127\.0\.0\.1/)) {
+      return callback(null, true);
+    }
+    
     return callback(new Error(`CORS: origin ${origin} not allowed`));
   },
   credentials:    true,
