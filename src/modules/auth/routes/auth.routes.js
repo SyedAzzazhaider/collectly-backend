@@ -41,6 +41,8 @@ router.post('/logout',     protect, authController.logout);
 router.post('/logout-all', protect, authController.logoutAll);
 router.patch('/password',  protect, validateChangePassword, authController.changePassword);
 router.get('/me',          protect, authController.getMe);
+router.patch('/profile',   protect, authController.updateProfile);
+router.get('/sessions',    protect, authController.getSessions);
 
 router.post('/resend-verification', protect, authController.sendVerificationEmail);
 
