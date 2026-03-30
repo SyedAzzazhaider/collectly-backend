@@ -405,6 +405,63 @@ const verifyEmail = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+
+
+
+// ── Update Notification Preferences ──────────────────────────────────────
+const updateNotifications = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const preferences = req.body;
+    
+    const result = await authService.updateNotifications(userId, preferences);
+    
+    await createAuditLog('user.notifications_update', { 
+      ...auditFromReq(req),
+      userId,
+    });
+    
+    sendSuccess(res, 200, 'Notification preferences updated successfully', {
+      notifications: result.notifications,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ── Invite Team Member ───────────────────────────────────────────────────
+const inviteUser = async (req, res, next) => {
+  try {
+    const { email, role } = req.body;
+    const inviterId = req.user.id;
+    const inviterName = req.user.name;
+    
+    const result = await authService.inviteUser(inviterId, inviterName, email, role);
+    
+    await createAuditLog('user.invite', { 
+      ...auditFromReq(req),
+      invitedEmail: email,
+      role,
+    });
+    
+    sendSuccess(res, 201, `Invitation sent to ${email}`, {
+      invitationId: result.invitationId,
+      email: result.email,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+
+
+
+
+
+
+
+
+
 // ── Exports ───────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -425,4 +482,6 @@ module.exports = {
   resetPassword,
   sendVerificationEmail,
   verifyEmail,
+  updateNotifications,  // ← ADD THIS
+  inviteUser,           // ← ADD THIS
 };

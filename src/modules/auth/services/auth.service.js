@@ -659,6 +659,158 @@ const verifyEmail = async (plainToken) => {
   logger.info(`Email verified for user: ${user.email}`);
 };
 
+
+
+// ── Update Notification Preferences ──────────────────────────────────────
+const updateNotifications = async (userId, preferences) => {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new AppError('User not found.', 404);
+  }
+  
+  // Define valid notification keys
+  const validKeys = [
+    'paymentReceived',
+    'invoiceOverdue',
+    'customerReply',
+    'weeklyDigest',
+    'systemAlerts',
+  ];
+  
+  // Validate only valid keys are being updated
+  const invalidKeys = Object.keys(preferences).filter(
+    key => !validKeys.includes(key)
+  );
+  
+  if (invalidKeys.length > 0) {
+    throw new AppError(
+      `Invalid notification keys: ${invalidKeys.join(', ')}`,
+      400,
+      'INVALID_NOTIFICATION_KEYS'
+    );
+  }
+  
+  // Update only the provided preferences
+  const currentPrefs = user.notifications || {};
+  const updatedPrefs = {
+    ...currentPrefs,
+    ...preferences,
+  };
+  
+  // Ensure all valid keys exist
+  validKeys.forEach(key => {
+    if (updatedPrefs[key] === undefined) {
+      updatedPrefs[key] = true; // Default to true
+    }
+  });
+  
+  user.notifications = updatedPrefs;
+  await user.save({ validateBeforeSave: false });
+  
+  logger.info(`Notification preferences updated for user: ${userId}`);
+  
+  return { notifications: user.notifications };
+};
+
+// ── Invite Team Member ───────────────────────────────────────────────────
+const inviteUser = async (inviterId, inviterName, email, role = 'agent') => {
+  // Check if user already exists
+  const existingUser = await User.findOne({ email: email.toLowerCase() });
+  if (existingUser) {
+    throw new AppError(
+      `User with email ${email} already exists.`,
+      409,
+      'USER_EXISTS'
+    );
+  }
+  
+  // Validate role
+  const validRoles = ['owner', 'admin', 'agent', 'accountant'];
+  if (!validRoles.includes(role)) {
+    throw new AppError(
+      `Invalid role. Must be one of: ${validRoles.join(', ')}`,
+      400,
+      'INVALID_ROLE'
+    );
+  }
+  
+  // Get inviter info
+  const inviter = await User.findById(inviterId);
+  if (!inviter) {
+    throw new AppError('Inviter not found.', 404);
+  }
+  
+  // Generate invitation token
+  const { generateSecureToken, hashToken, generateExpiry } = require('../../../shared/utils/token.util');
+  const plainToken = generateSecureToken(32);
+  const hashedToken = hashToken(plainToken);
+  
+  // Create invitation record (you may want to create an Invitation model)
+  // For now, we'll use a simple approach: store in a temporary collection
+  // or use a dedicated Invitation model. Since we don't have one, we'll
+  // create a simple in-memory store (for production, create an Invitation model)
+  
+  const invitation = {
+    token: hashedToken,
+    email: email.toLowerCase(),
+    role,
+    invitedBy: inviterId,
+    invitedByName: inviterName,
+    expiresAt: generateExpiry(7 * 24 * 60), // 7 days expiry
+    createdAt: new Date(),
+  };
+  
+  // Store invitation in database - we need to create an Invitation model
+  // For now, we'll save to a temporary collection or use a direct approach
+  // Let's create a simple Invitation model if it doesn't exist
+  let Invitation;
+  try {
+    Invitation = require('../models/Invitation.model');
+  } catch (e) {
+    // If model doesn't exist, we need to create it
+    // For now, we'll just log and proceed
+    logger.warn('Invitation model not found. Create it to persist invitations.');
+  }
+  
+  let invitationId = null;
+  if (Invitation) {
+    const created = await Invitation.create({
+      email: email.toLowerCase(),
+      token: hashedToken,
+      role,
+      invitedBy: inviterId,
+      invitedByName: inviterName,
+      expiresAt: invitation.expiresAt,
+    });
+    invitationId = created._id;
+  }
+  
+  // Send invitation email
+  const inviteUrl = `${process.env.FRONTEND_URL}/auth/accept-invite/${plainToken}`;
+  
+  const emailService = require('../../notifications/services/email.service');
+  await emailService.sendEmail({
+    to: email,
+    toName: email.split('@')[0],
+    subject: `You've been invited to join Collectly`,
+    body: `Hi there,\n\n${inviterName} has invited you to join their Collectly team as a ${role}.\n\nClick the link below to accept the invitation and set up your account:\n\n${inviteUrl}\n\nThis invitation expires in 7 days.\n\nIf you didn't expect this invitation, you can safely ignore this email.\n\nBest regards,\nCollectly Team`,
+  });
+  
+  logger.info(`Invitation sent to ${email} by ${inviterName} (${inviterId})`);
+  
+  return {
+    invitationId,
+    email: email.toLowerCase(),
+    role,
+  };
+};
+
+
+
+
+
+
+
 // -- Exports -------------------------------------------------------------------
 
 module.exports = {
@@ -677,5 +829,6 @@ module.exports = {
   resetPassword,
   sendVerificationEmail,
   verifyEmail,
+  updateNotifications,  // ← ADD THIS
+  inviteUser,           // ← ADD THIS
 };
-

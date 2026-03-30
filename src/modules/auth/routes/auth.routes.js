@@ -46,6 +46,22 @@ router.get('/sessions',    protect, authController.getSessions);
 
 router.post('/resend-verification', protect, authController.sendVerificationEmail);
 
+
+// ── Notification Preferences ──────────────────────────────────────────────
+/**
+ * PATCH /api/v1/auth/notifications
+ * Update user's notification preferences
+ */
+router.patch('/notifications', protect, authController.updateNotifications);
+
+// ── Team Invite ──────────────────────────────────────────────────────────
+/**
+ * POST /api/v1/auth/invite
+ * Invite a team member (owner/admin only)
+ */
+router.post('/invite', protect, restrictTo('owner', 'admin'), authController.inviteUser);
+
+
 router.post('/2fa/setup', (req, res, next) => {
   req.skip2FAGate = true;
   next();

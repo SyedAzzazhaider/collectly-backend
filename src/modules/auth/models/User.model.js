@@ -79,20 +79,34 @@ const userSchema = new mongoose.Schema(
     passwordResetToken:   { type: String, select: false },
     passwordResetExpires: { type: Date,   select: false },
 
-    isActive:            { type: Boolean, default: true },
+    isActive: { type: Boolean, default: true },
+
+    // ── Notification Preferences ────────────────────────────────────────────────
+    notifications: {
+      type: Object,
+      default: {
+        paymentReceived: true,
+        invoiceOverdue: true,
+        customerReply: true,
+        weeklyDigest: true,
+        systemAlerts: true,
+      },
+    },
+
     // ── Legal acceptance ──────────────────────────────────────────────────────────
-tosAcceptedAt: {
-  type:    Date,
-  default: null,
-},
-tosVersion: {
-  type:    String,
-  default: null,
-},
-privacyAcceptedAt: {
-  type:    Date,
-  default: null,
-},
+    tosAcceptedAt: {
+      type:    Date,
+      default: null,
+    },
+    tosVersion: {
+      type:    String,
+      default: null,
+    },
+    privacyAcceptedAt: {
+      type:    Date,
+      default: null,
+    },
+
     lockedUntil:         { type: Date,    default: null },
     failedLoginAttempts: { type: Number,  default: 0 },
 
@@ -185,4 +199,3 @@ userSchema.methods.resetFailedLogin = async function () {
 
 const User = mongoose.model('User', userSchema);
 module.exports = User;
-
