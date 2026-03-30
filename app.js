@@ -139,10 +139,26 @@ app.use('/api/v1', perUserLimiter);
 app.use(passport.initialize());
 
 // ── Health check ──────────────────────────────────────────────────────────────
+// FIX: Previous /health always returned 200 regardless of DB state.
+// Render uses this endpoint to determine service health — a DB disconnect
+// would not be detected, keeping the service "healthy" while broken.
+// Now reports real readyState and returns 503 when DB is not connected.
 
-app.get('/health', (req, res) =>
-  res.status(200).json({ status: 'ok', service: 'collectly-api' })
-);
+const { isDbReady } = require('./src/config/database');
+
+app.get('/health', (req, res) => {
+  const dbReady = isDbReady();
+  const status  = dbReady ? 'ok' : 'degraded';
+  const code    = dbReady ? 200 : 503;
+  return res.status(code).json({
+    status,
+    service:  'collectly-api',
+    database: dbReady ? 'connected' : 'disconnected',
+    uptime:   Math.floor(process.uptime()),
+    timestamp: new Date().toISOString(),
+  });
+});
+
 
 // ── API routes ────────────────────────────────────────────────────────────────
 

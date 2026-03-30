@@ -26,12 +26,24 @@ const extractMeta = (req) => ({
 // HMAC-based — ties token to userId+customerId so it cannot be forged
 
 const generateUnsubscribeToken = (userId, customerId) => {
-   const secret  = process.env.UNSUBSCRIBE_SECRET ||
-                process.env.JWT_ACCESS_SECRET  ||
-                'collectly_unsubscribe_secret';
-    const payload = `${userId}:${customerId}:unsubscribe`;
+  const secret = process.env.UNSUBSCRIBE_SECRET || process.env.JWT_ACCESS_SECRET;
+  // SECURITY: Hard-fail if no secret is configured in production.
+  // A missing secret means ALL unsubscribe tokens are forgeable — treat as fatal.
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new AppError(
+        'UNSUBSCRIBE_SECRET is not configured. Set this env var before going live.',
+        500,
+        'CONFIG_MISSING'
+      );
+    }
+    // Dev/test: warn loudly but allow operation so tests don't halt
+    logger.warn('UNSUBSCRIBE_SECRET not set — unsubscribe tokens are using JWT_ACCESS_SECRET as fallback. Set UNSUBSCRIBE_SECRET in .env.');
+  }
+  const resolvedSecret = secret || 'dev_only_not_for_production';
+  const payload = `${userId}:${customerId}:unsubscribe`;
   return crypto
-    .createHmac('sha256', secret)
+    .createHmac('sha256', resolvedSecret)
     .update(payload)
     .digest('hex');
 };
