@@ -57,7 +57,7 @@
     "qrcode": "^1.5.4",
     "speakeasy": "^2.0.0",
     "stripe": "^20.4.1",
-    "twilio": "^5.13.0",
+    "twilio": "^5.13.1",
     "winston": "^3.19.0"
   },
   "devDependencies": {

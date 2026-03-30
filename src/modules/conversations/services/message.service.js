@@ -7,10 +7,9 @@ const Invoice      = require('../../customers/models/Invoice.model');
 const AppError     = require('../../../shared/errors/AppError');
 const logger       = require('../../../shared/utils/logger');
 const alertService = require('../../alerts/services/alert.service');
+const { sendSMS, sendWhatsApp } = require('../../notifications/providers/sms.provider');
 
-// ── Send a message ────────────────────────────────────────────────────────────
-// Document: Message inbox — outbound messages sent by agent
-
+// ── Send a message (OUTBOUND) ──────────────────────────────────────────────────
 const sendMessage = async (userId, data) => {
   const {
     customerId, invoiceId = null, channel, type = 'custom',
@@ -41,6 +40,43 @@ const sendMessage = async (userId, data) => {
     });
   }
 
+  // ─────────────────────────────────────────────────────────────────
+  // SEND VIA PROVIDER (Twilio)
+  // ─────────────────────────────────────────────────────────────────
+  let providerResult = null;
+  let messageStatus = 'sent';
+
+  if (channel === 'sms') {
+    if (!customer.phone) {
+      throw new AppError('Customer has no phone number for SMS.', 400, 'NO_PHONE_NUMBER');
+    }
+    logger.info(`Sending SMS to ${customer.phone}`);
+    providerResult = await sendSMS(customer.phone, body);
+    if (!providerResult.success) {
+      logger.error(`SMS failed: ${providerResult.error}`);
+      messageStatus = 'failed';
+      notes = notes ? `${notes}\nSMS Error: ${providerResult.error}` : `SMS Error: ${providerResult.error}`;
+    } else {
+      logger.info(`SMS sent. SID: ${providerResult.messageId}`);
+    }
+  }
+  
+  if (channel === 'whatsapp') {
+    if (!customer.phone) {
+      throw new AppError('Customer has no phone number for WhatsApp.', 400, 'NO_PHONE_NUMBER');
+    }
+    logger.info(`Sending WhatsApp to ${customer.phone}`);
+    providerResult = await sendWhatsApp(customer.phone, body);
+    if (!providerResult.success) {
+      logger.error(`WhatsApp failed: ${providerResult.error}`);
+      messageStatus = 'failed';
+      notes = notes ? `${notes}\nWhatsApp Error: ${providerResult.error}` : `WhatsApp Error: ${providerResult.error}`;
+    } else {
+      logger.info(`WhatsApp sent. SID: ${providerResult.messageId}`);
+    }
+  }
+
+  // Create message record
   const message = await Message.create({
     userId,
     customerId,
@@ -48,7 +84,7 @@ const sendMessage = async (userId, data) => {
     direction: 'outbound',
     channel,
     type,
-    status:        'sent',
+    status: messageStatus,
     subject,
     body,
     cannedReplyId,
@@ -59,17 +95,21 @@ const sendMessage = async (userId, data) => {
     tags,
     followUpAt,
     followUpNote,
-    sentBy:  userId,
-    sentAt:  new Date(),
+    sentBy: userId,
+    sentAt: new Date(),
+    providerMessageId: providerResult?.messageId || null,
   });
 
-  logger.info(`Message sent: ${message._id} channel=${channel} customer=${customerId} user=${userId}`);
+  logger.info(`Message created: ${message._id} channel=${channel} status=${messageStatus}`);
+  
+  if (messageStatus === 'failed') {
+    throw new AppError(`Failed to send ${channel}. ${providerResult?.error || 'Provider error'}`, 502, 'PROVIDER_ERROR');
+  }
+  
   return message;
 };
 
 // ── Record inbound message (customer reply) ───────────────────────────────────
-// Document: Inbound messages — track customer responses
-
 const recordInboundMessage = async (userId, data) => {
   const {
     customerId, invoiceId = null, channel,
@@ -85,38 +125,33 @@ const recordInboundMessage = async (userId, data) => {
     userId,
     customerId,
     invoiceId,
-    direction:         'inbound',
+    direction: 'inbound',
     channel,
-    type:              'custom',
-    status:            'delivered',
+    type: 'custom',
+    status: 'delivered',
     subject,
     body,
     providerMessageId,
-    deliveredAt:       new Date(),
-    readAt:            null,
+    deliveredAt: new Date(),
+    readAt: null,
   });
 
   logger.info(`Inbound message recorded: ${message._id} customer=${customerId}`);
-
-  // Module I — fire-and-forget alert (never blocks message recording)
   alertService.triggerCustomerReply(userId, { customer, message }).catch(() => {});
 
   return message;
 };
 
-
-// ── Get inbox (all messages for user) ────────────────────────────────────────
-// Document: Agent inbox — filterable by customer, invoice, direction, channel
-
+// ── Get inbox ─────────────────────────────────────────────────────────────────
 const getInbox = async (userId, {
-  page       = 1,
-  limit      = 20,
+  page = 1,
+  limit = 20,
   customerId = null,
-  invoiceId  = null,
-  direction  = null,
-  channel    = null,
-  type       = null,
-  status     = null,
+  invoiceId = null,
+  direction = null,
+  channel = null,
+  type = null,
+  status = null,
   hasFollowUp = null,
 } = {}) => {
   const query = { userId };
@@ -129,17 +164,17 @@ const getInbox = async (userId, {
   if (status)      query.status     = status;
 
   if (hasFollowUp === 'true' || hasFollowUp === true) {
-    query.followUpAt       = { $ne: null };
+    query.followUpAt = { $ne: null };
     query.followUpCompleted = false;
   }
 
-  const skip  = (page - 1) * limit;
+  const skip = (page - 1) * limit;
   const total = await Message.countDocuments(query);
 
   const messages = await Message.find(query)
     .populate('customerId', 'name email company')
-    .populate('invoiceId',  'invoiceNumber amount status')
-    .populate('sentBy',     'name email')
+    .populate('invoiceId', 'invoiceNumber amount status')
+    .populate('sentBy', 'name email')
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(limit)
@@ -151,12 +186,10 @@ const getInbox = async (userId, {
   };
 };
 
-// ── Get conversation thread for a customer ────────────────────────────────────
-// Document: Conversation thread — all messages for a specific customer
-
+// ── Get conversation thread ──────────────────────────────────────────────────
 const getConversationThread = async (userId, customerId, {
-  page      = 1,
-  limit     = 50,
+  page = 1,
+  limit = 50,
   invoiceId = null,
 } = {}) => {
   const customer = await Customer.findOne({ _id: customerId, userId });
@@ -167,12 +200,12 @@ const getConversationThread = async (userId, customerId, {
   const query = { userId, customerId };
   if (invoiceId) query.invoiceId = invoiceId;
 
-  const skip  = (page - 1) * limit;
+  const skip = (page - 1) * limit;
   const total = await Message.countDocuments(query);
 
   const messages = await Message.find(query)
-    .populate('invoiceId',  'invoiceNumber amount status')
-    .populate('sentBy',     'name email')
+    .populate('invoiceId', 'invoiceNumber amount status')
+    .populate('sentBy', 'name email')
     .sort({ createdAt: 1 })
     .skip(skip)
     .limit(limit)
@@ -185,13 +218,12 @@ const getConversationThread = async (userId, customerId, {
   };
 };
 
-// ── Get single message ────────────────────────────────────────────────────────
-
+// ── Get single message ───────────────────────────────────────────────────────
 const getMessageById = async (userId, messageId) => {
   const message = await Message.findOne({ _id: messageId, userId })
     .populate('customerId', 'name email company')
-    .populate('invoiceId',  'invoiceNumber amount status')
-    .populate('sentBy',     'name email');
+    .populate('invoiceId', 'invoiceNumber amount status')
+    .populate('sentBy', 'name email');
 
   if (!message) {
     throw new AppError('Message not found.', 404, 'MESSAGE_NOT_FOUND');
@@ -199,9 +231,7 @@ const getMessageById = async (userId, messageId) => {
   return message;
 };
 
-// ── Update message notes and tags ─────────────────────────────────────────────
-// Document: Notes & tags on messages
-
+// ── Update message notes and tags ────────────────────────────────────────────
 const updateMessageNotesTags = async (userId, messageId, { notes, tags }) => {
   const message = await Message.findOne({ _id: messageId, userId });
   if (!message) {
@@ -209,15 +239,14 @@ const updateMessageNotesTags = async (userId, messageId, { notes, tags }) => {
   }
 
   if (notes !== undefined) message.notes = notes;
-  if (tags  !== undefined) message.tags  = tags;
+  if (tags !== undefined) message.tags = tags;
 
   await message.save();
-  logger.info(`Message notes/tags updated: ${messageId} by user ${userId}`);
+  logger.info(`Message notes/tags updated: ${messageId}`);
   return message;
 };
 
-// ── Mark message as read ──────────────────────────────────────────────────────
-
+// ── Mark message as read ─────────────────────────────────────────────────────
 const markAsRead = async (userId, messageId) => {
   const message = await Message.findOne({ _id: messageId, userId });
   if (!message) {
@@ -233,18 +262,16 @@ const markAsRead = async (userId, messageId) => {
   return message;
 };
 
-// ── Get pending follow-ups ────────────────────────────────────────────────────
-// Document: Follow-ups scheduling
-
+// ── Get pending follow-ups ───────────────────────────────────────────────────
 const getPendingFollowUps = async (userId, {
-  page       = 1,
-  limit      = 20,
+  page = 1,
+  limit = 20,
   overdueOnly = false,
 } = {}) => {
-  const now   = new Date();
+  const now = new Date();
   const query = {
     userId,
-    followUpAt:        { $ne: null },
+    followUpAt: { $ne: null },
     followUpCompleted: false,
   };
 
@@ -252,12 +279,12 @@ const getPendingFollowUps = async (userId, {
     query.followUpAt = { $lte: now };
   }
 
-  const skip  = (page - 1) * limit;
+  const skip = (page - 1) * limit;
   const total = await Message.countDocuments(query);
 
   const messages = await Message.find(query)
     .populate('customerId', 'name email company')
-    .populate('invoiceId',  'invoiceNumber amount status')
+    .populate('invoiceId', 'invoiceNumber amount status')
     .sort({ followUpAt: 1 })
     .skip(skip)
     .limit(limit)
@@ -269,26 +296,23 @@ const getPendingFollowUps = async (userId, {
   };
 };
 
-// ── Schedule follow-up ────────────────────────────────────────────────────────
-// Document: Follow-ups scheduling
-
+// ── Schedule follow-up ───────────────────────────────────────────────────────
 const scheduleFollowUp = async (userId, messageId, { followUpAt, followUpNote }) => {
   const message = await Message.findOne({ _id: messageId, userId });
   if (!message) {
     throw new AppError('Message not found.', 404, 'MESSAGE_NOT_FOUND');
   }
 
-  message.followUpAt        = new Date(followUpAt);
-  message.followUpNote      = followUpNote || null;
+  message.followUpAt = new Date(followUpAt);
+  message.followUpNote = followUpNote || null;
   message.followUpCompleted = false;
 
   await message.save();
-  logger.info(`Follow-up scheduled: message=${messageId} followUpAt=${followUpAt}`);
+  logger.info(`Follow-up scheduled: message=${messageId}`);
   return message;
 };
 
-// ── Complete follow-up ────────────────────────────────────────────────────────
-
+// ── Complete follow-up ───────────────────────────────────────────────────────
 const completeFollowUp = async (userId, messageId) => {
   const message = await Message.findOne({ _id: messageId, userId });
   if (!message) {
@@ -296,23 +320,22 @@ const completeFollowUp = async (userId, messageId) => {
   }
 
   if (!message.followUpAt) {
-    throw new AppError('No follow-up scheduled for this message.', 400, 'NO_FOLLOW_UP_SCHEDULED');
+    throw new AppError('No follow-up scheduled.', 400, 'NO_FOLLOW_UP_SCHEDULED');
   }
 
   if (message.followUpCompleted) {
     throw new AppError('Follow-up already completed.', 400, 'FOLLOW_UP_ALREADY_COMPLETED');
   }
 
-  message.followUpCompleted  = true;
+  message.followUpCompleted = true;
   message.followUpCompletedAt = new Date();
 
   await message.save();
-  logger.info(`Follow-up completed: message=${messageId} by user ${userId}`);
+  logger.info(`Follow-up completed: message=${messageId}`);
   return message;
 };
 
-// ── Get conversation stats for a customer ─────────────────────────────────────
-
+// ── Get conversation stats ───────────────────────────────────────────────────
 const getConversationStats = async (userId, customerId) => {
   const customer = await Customer.findOne({ _id: customerId, userId });
   if (!customer) {
@@ -327,38 +350,38 @@ const getConversationStats = async (userId, customerId) => {
     { $match: { userId: oid, customerId: cid } },
     {
       $group: {
-        _id:       '$direction',
-        count:     { $sum: 1 },
-        channels:  { $addToSet: '$channel' },
-        lastAt:    { $max: '$createdAt' },
+        _id: '$direction',
+        count: { $sum: 1 },
+        channels: { $addToSet: '$channel' },
+        lastAt: { $max: '$createdAt' },
       },
     },
   ]);
 
   const result = {
-    totalMessages:    0,
-    outbound:         0,
-    inbound:          0,
-    lastOutboundAt:   null,
-    lastInboundAt:    null,
+    totalMessages: 0,
+    outbound: 0,
+    inbound: 0,
+    lastOutboundAt: null,
+    lastInboundAt: null,
     pendingFollowUps: 0,
   };
 
   stats.forEach((s) => {
     result.totalMessages += s.count;
     if (s._id === 'outbound') {
-      result.outbound      = s.count;
+      result.outbound = s.count;
       result.lastOutboundAt = s.lastAt;
     } else {
-      result.inbound      = s.count;
+      result.inbound = s.count;
       result.lastInboundAt = s.lastAt;
     }
   });
 
   result.pendingFollowUps = await Message.countDocuments({
-    userId:            oid,
-    customerId:        cid,
-    followUpAt:        { $ne: null },
+    userId: oid,
+    customerId: cid,
+    followUpAt: { $ne: null },
     followUpCompleted: false,
   });
 
@@ -378,4 +401,3 @@ module.exports = {
   completeFollowUp,
   getConversationStats,
 };
-
