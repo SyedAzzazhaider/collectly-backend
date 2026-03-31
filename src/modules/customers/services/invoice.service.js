@@ -222,26 +222,27 @@ const recordPayment = async (userId, invoiceId, paymentAmount) => {
         $inc: { activeInvoiceCount: -1 },
       });
 
-      // Clear sequence fields — paid invoices no longer need reminder scheduling
+      // Clear sequence fields ï¿½ paid invoices no longer need reminder scheduling
       await Invoice.findByIdAndUpdate(invoiceId, {
-        $set: {
-          sequenceId:         null,
-          sequenceAssignedAt: null,
-          nextReminderAt:     null,
-          sequencePaused:     false,
-        },
-      });
+  $set: {
+    sequenceId: null,
+    sequenceAssignedAt: null,
+    nextReminderAt: null,
+    sequencePaused: false,
+    currentPhase: null,  // â† ADD THIS LINE
+  },
+});
 
       logger.info(`Sequence assignment cleared for paid invoice ${invoiceId}`);
     } catch (seqErr) {
-      // Non-fatal: log and continue — payment was already saved successfully
+      // Non-fatal: log and continue ï¿½ payment was already saved successfully
       logger.warn(
         `Failed to update sequence count for paid invoice ${invoiceId}: ${seqErr.message}`
       );
     }
   }
 
-  // Module I — fire-and-forget alert (never blocks payment recording)
+  // Module I ï¿½ fire-and-forget alert (never blocks payment recording)
   alertService.triggerPaymentReceived(userId, { invoice, amount: paymentAmount }).catch(() => {});
 
   return invoice;
