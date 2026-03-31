@@ -9,6 +9,9 @@ const logger       = require('../../../shared/utils/logger');
 const alertService = require('../../alerts/services/alert.service');
 const { sendSMS, sendWhatsApp } = require('../../notifications/providers/sms.provider');
 
+// ✅ ADD THIS IMPORT
+const complianceService = require('../../compliance/services/compliance.service');
+
 // ── Send a message (OUTBOUND) ──────────────────────────────────────────────────
 const sendMessage = async (userId, data) => {
   const {
@@ -22,6 +25,17 @@ const sendMessage = async (userId, data) => {
   const customer = await Customer.findOne({ _id: customerId, userId });
   if (!customer) {
     throw new AppError('Customer not found.', 404, 'CUSTOMER_NOT_FOUND');
+  }
+
+  // ✅ ADD DNC CHECK BEFORE SENDING
+  const { allowed, reason } = await complianceService.isDeliveryAllowed(userId, customerId, channel);
+  if (!allowed) {
+    logger.info(`Message blocked: Customer ${customerId} - ${reason} for channel ${channel}`);
+    throw new AppError(
+      `Cannot send ${channel} message. Customer is ${reason === 'on_dnc_list' ? 'on DNC list' : reason}.`,
+      403,
+      'COMMUNICATION_BLOCKED'
+    );
   }
 
   // Verify invoice if provided
