@@ -26,11 +26,15 @@ const createPaymentLink = async (userId, { invoiceId, amount, expiresInDays = 7 
     amount: linkAmount, currency: invoice.currency, expiresAt
   });
   
-  return { url: \/pay/\, token, expiresAt, amount: linkAmount };
+  return { url: ${process.env.FRONTEND_URL}/pay/, token, expiresAt, amount: linkAmount };
 };
 
 const getUserPaymentLinks = async (userId) => {
-  return await PaymentLink.find({ userId }).populate('invoiceId', 'invoiceNumber').populate('customerId', 'name').sort({ createdAt: -1 }).lean();
+  return await PaymentLink.find({ userId })
+    .populate('invoiceId', 'invoiceNumber')
+    .populate('customerId', 'name')
+    .sort({ createdAt: -1 })
+    .lean();
 };
 
 module.exports = { createPaymentLink, getUserPaymentLinks };
