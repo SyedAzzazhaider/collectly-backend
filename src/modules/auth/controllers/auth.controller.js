@@ -180,16 +180,6 @@ const getMe = async (req, res, next) => {
 const updateProfile = async (req, res, next) => {
   try {
     const { name, timezone, phone } = req.body;
-    
-    // ✅ Phone validation - E.164 format
-    if (phone !== undefined && !validatePhone(phone)) {
-      return next(new AppError(
-        'Phone must be in E.164 format (e.g., +1234567890)',
-        400,
-        'INVALID_PHONE_FORMAT'
-      ));
-    }
-    
     const updates = {};
     if (name !== undefined) updates.name = name.trim();
     if (timezone !== undefined) updates.timezone = timezone;
@@ -210,6 +200,8 @@ const updateProfile = async (req, res, next) => {
     });
   } catch (err) { next(err); }
 };
+    
+    
 
 // ── Get Sessions ──────────────────────────────────────────────────────────────
 
