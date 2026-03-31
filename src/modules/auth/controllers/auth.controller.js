@@ -5,6 +5,7 @@ const AppError    = require('../../../shared/errors/AppError');
 const logger      = require('../../../shared/utils/logger');
 const { createAuditLog, auditFromReq } = require('../../../shared/utils/audit.util');
 const User = require('../models/User.model');
+
 // ── Meta extractor ────────────────────────────────────────────────────────────
 
 /**
@@ -26,6 +27,13 @@ const sendSuccess = (res, statusCode, message, data = {}) => {
     message,
     data,
   });
+};
+
+// ── Phone validation helper (E.164 format) ───────────────────────────────────
+const validatePhone = (phone) => {
+  if (!phone) return true; // Phone is optional
+  const phoneRegex = /^\+\d{10,15}$/;
+  return phoneRegex.test(phone);
 };
 
 // ── Signup ────────────────────────────────────────────────────────────────────
@@ -172,6 +180,16 @@ const getMe = async (req, res, next) => {
 const updateProfile = async (req, res, next) => {
   try {
     const { name, timezone, phone } = req.body;
+    
+    // ✅ Phone validation - E.164 format
+    if (phone !== undefined && !validatePhone(phone)) {
+      return next(new AppError(
+        'Phone must be in E.164 format (e.g., +1234567890)',
+        400,
+        'INVALID_PHONE_FORMAT'
+      ));
+    }
+    
     const updates = {};
     if (name !== undefined) updates.name = name.trim();
     if (timezone !== undefined) updates.timezone = timezone;
@@ -405,10 +423,7 @@ const verifyEmail = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-
-
-
-// ── Update Notification Preferences ──────────────────────────────────────
+// ── Update Notification Preferences ──────────────────────────────────────────
 const updateNotifications = async (req, res, next) => {
   try {
     const userId = req.user.id;
@@ -429,7 +444,7 @@ const updateNotifications = async (req, res, next) => {
   }
 };
 
-// ── Invite Team Member ───────────────────────────────────────────────────
+// ── Invite Team Member ───────────────────────────────────────────────────────
 const inviteUser = async (req, res, next) => {
   try {
     const { email, role } = req.body;
@@ -453,15 +468,6 @@ const inviteUser = async (req, res, next) => {
   }
 };
 
-
-
-
-
-
-
-
-
-
 // ── Exports ───────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -482,6 +488,6 @@ module.exports = {
   resetPassword,
   sendVerificationEmail,
   verifyEmail,
-  updateNotifications,  // ← ADD THIS
-  inviteUser,           // ← ADD THIS
+  updateNotifications,
+  inviteUser,
 };
