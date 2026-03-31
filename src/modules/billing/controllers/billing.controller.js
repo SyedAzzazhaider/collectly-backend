@@ -53,10 +53,10 @@ const createCheckout = async (req, res, next) => {
     // Map plan names to Stripe Price IDs
     // You need to create these Price IDs in Stripe Dashboard
     const priceIds = {
-      starter: process.env.STRIPE_PRICE_STARTER || 'price_starter_id',
-      pro: process.env.STRIPE_PRICE_PRO || 'price_pro_id',
-      enterprise: process.env.STRIPE_PRICE_ENTERPRISE || 'price_enterprise_id'
-    };
+  starter: process.env.STRIPE_STARTER_PRICE_ID,
+  pro: process.env.STRIPE_PRO_PRICE_ID,
+  enterprise: process.env.STRIPE_ENTERPRISE_PRICE_ID
+};
     
     const priceId = priceIds[plan.toLowerCase()];
     if (!priceId) {
