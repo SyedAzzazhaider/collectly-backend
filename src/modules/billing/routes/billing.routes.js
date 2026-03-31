@@ -21,7 +21,7 @@ router.get('/plans', billingController.getPlans);
 // -----------------------------------------------------------------------------
 // STRIPE WEBHOOK
 // BUG-02 FIX: Raw body is now captured by the verify callback in app.js
-// express.json(). Do NOT apply express.raw() here — the body would already
+// express.json(). Do NOT apply express.raw() here ï¿½ the body would already
 // be consumed and this middleware would be skipped, breaking req.rawBody.
 // -----------------------------------------------------------------------------
 
@@ -32,7 +32,7 @@ router.post(
 );
 
 // -----------------------------------------------------------------------------
-// ADMIN ROUTES — must be defined before dynamic segments
+// ADMIN ROUTES ï¿½ must be defined before dynamic segments
 // -----------------------------------------------------------------------------
 
 router.get(
@@ -43,7 +43,7 @@ router.get(
 );
 
 // -----------------------------------------------------------------------------
-// STATIC NAMED ROUTES — must be defined before any dynamic :param routes
+// STATIC NAMED ROUTES ï¿½ must be defined before any dynamic :param routes
 // -----------------------------------------------------------------------------
 
 router.get('/usage',    protect, billingController.getUsage);
@@ -73,9 +73,10 @@ router.post(
   validateIncrementUsage,
   billingController.incrementUsage
 );
+router.post('/create-checkout', protect, billingController.createCheckout);
 
 // -----------------------------------------------------------------------------
-// BASE BILLING ROUTE — must be last to avoid swallowing named routes
+// BASE BILLING ROUTE ï¿½ must be last to avoid swallowing named routes
 // -----------------------------------------------------------------------------
 
 router.get('/', protect, billingController.getBilling);

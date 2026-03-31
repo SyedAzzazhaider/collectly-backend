@@ -39,6 +39,64 @@ const subscribe = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// ── CREATE STRIPE CHECKOUT SESSION ──────────────────────────────────────────
+// This is the correct endpoint for upgrading plans - opens Stripe checkout
+const createCheckout = async (req, res, next) => {
+  try {
+    const { plan } = req.body;
+    const userId = req.user.id;
+    
+    if (!plan) {
+      throw new AppError('Plan is required', 400, 'PLAN_REQUIRED');
+    }
+    
+    // Map plan names to Stripe Price IDs
+    // You need to create these Price IDs in Stripe Dashboard
+    const priceIds = {
+      starter: process.env.STRIPE_PRICE_STARTER || 'price_starter_id',
+      pro: process.env.STRIPE_PRICE_PRO || 'price_pro_id',
+      enterprise: process.env.STRIPE_PRICE_ENTERPRISE || 'price_enterprise_id'
+    };
+    
+    const priceId = priceIds[plan.toLowerCase()];
+    if (!priceId) {
+      throw new AppError('Invalid plan selected', 400, 'INVALID_PLAN');
+    }
+    
+    // Initialize Stripe
+    const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+    
+    // Create checkout session
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price: priceId,
+          quantity: 1,
+        },
+      ],
+      success_url: `${process.env.FRONTEND_URL}/billing?session_id={CHECKOUT_SESSION_ID}&success=true`,
+      cancel_url: `${process.env.FRONTEND_URL}/billing?canceled=true`,
+      client_reference_id: userId,
+      metadata: {
+        userId: userId,
+        plan: plan.toLowerCase(),
+      },
+    });
+    
+    logger.info(`Stripe checkout created: session=${session.id} userId=${userId} plan=${plan}`);
+    
+    sendSuccess(res, 200, 'Checkout session created', { url: session.url, sessionId: session.id });
+  } catch (err) {
+    logger.error(`Create checkout failed: ${err.message}`);
+    next(err);
+  }
+};
+
+// ── CHANGE PLAN (Direct Update - For Admin Only) ────────────────────────────
+// WARNING: This bypasses payment. Should only be used for admin or free trials.
+// For normal users, use createCheckout above.
 const changePlan = async (req, res, next) => {
   try {
     const { plan } = req.body;
@@ -142,7 +200,8 @@ module.exports = {
   getPlans,
   getBilling,
   subscribe,
-  changePlan,
+  createCheckout,  // ← ADD THIS
+  changePlan,      // Keep for admin use
   cancelSubscription,
   reactivateSubscription,
   getUsage,
