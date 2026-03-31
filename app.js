@@ -198,6 +198,8 @@ app.use('/api/v1/compliance', require('./src/modules/compliance/routes/complianc
 app.use('/api/v1/audit-logs', require('./src/shared/routes/auditLog.routes'));
 // Legal — ToS & Privacy Policy
 app.use('/api/v1/legal', require('./src/shared/routes/legal.routes'));
+// WhatsApp webhook
+app.use('/api/v1/webhooks', require('./src/modules/webhooks/routes/webhook.routes'));
 
 
 // ── 404 handler ───────────────────────────────────────────────────────────────

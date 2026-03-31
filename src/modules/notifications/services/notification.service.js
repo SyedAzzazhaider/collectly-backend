@@ -6,7 +6,10 @@ const Customer         = require('../../customers/models/Customer.model');
 const AppError         = require('../../../shared/errors/AppError');
 const logger           = require('../../../shared/utils/logger');
 
-// ── Create notification record ────────────────────────────────────────────────
+// ✅ ADD THIS IMPORT
+const complianceService = require('../../compliance/services/compliance.service');
+
+// ── Create notification record with DNC check ─────────────────────────────────
 
 const createNotification = async (userId, data) => {
   const {
@@ -15,6 +18,20 @@ const createNotification = async (userId, data) => {
     sequenceId = null, phaseNumber = null,
     scheduledAt = null, maxAttempts = 3, metadata = {},
   } = data;
+
+  // ✅ ADD DNC CHECK BEFORE CREATING NOTIFICATION
+  if (customerId) {
+    const { allowed, reason } = await complianceService.isDeliveryAllowed(userId, customerId, channel);
+    
+    if (!allowed) {
+      logger.info(`Notification blocked: Customer ${customerId} - ${reason} for channel ${channel}`);
+      throw new AppError(
+        `Cannot send ${channel} notification. Customer is ${reason === 'on_dnc_list' ? 'on DNC list' : reason}.`,
+        403,
+        'COMMUNICATION_BLOCKED'
+      );
+    }
+  }
 
   const notification = await Notification.create({
     userId,
@@ -221,4 +238,3 @@ module.exports = {
   getInvoiceNotifications,
   getAllNotificationsAdmin,
 };
-
