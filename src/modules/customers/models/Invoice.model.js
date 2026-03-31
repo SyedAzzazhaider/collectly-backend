@@ -89,14 +89,26 @@ const invoiceSchema = new mongoose.Schema(
     remindersSent:  { type: Number, default: 0 },
     lastReminderAt: { type: Date,   default: null },
 
-    // -- Module D — Sequence assignment tracking -------------------------------
+    // -- Module D ï¿½ Sequence assignment tracking -------------------------------
     sequenceId: {
       type:    mongoose.Schema.Types.ObjectId,
       ref:     'Sequence',
       default: null,
     },
     sequenceAssignedAt: { type: Date,    default: null },
-    currentPhase:       { type: Number,  default: null, min: 1, max: 5 },
+    currentPhase: { 
+  type: Number, 
+  default: null, 
+  min: 0,  // â† CHANGE FROM 1 TO 0 (allow 0 temporarily)
+  max: 5,
+  validate: {
+    validator: function(v) {
+      // Allow null OR numbers between 0 and 5
+      return v === null || (v >= 0 && v <= 5);
+    },
+    message: 'Current phase must be null or between 0 and 5'
+  }
+},
     sequencePaused:     { type: Boolean, default: false },
     nextReminderAt:     { type: Date,    default: null },
 
