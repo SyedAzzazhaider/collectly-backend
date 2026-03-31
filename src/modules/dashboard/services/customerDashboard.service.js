@@ -216,38 +216,32 @@ const getResponseRate = async (userId, { period = '30d', dateFrom, dateTo } = {}
 
   const createdAt = buildDateRange({ period, dateFrom, dateTo });
 
-  const remindedInvoiceIds = await Notification.distinct('invoiceId', {
+  // Get ALL invoices created in this period (not just reminded ones)
+  const allInvoices = await Invoice.find({
     userId,
-    invoiceId: { $ne: null },
     createdAt,
+  }).lean();
+
+  const totalAmount = allInvoices.reduce((sum, inv) => sum + inv.amount, 0);
+  const totalPaid = allInvoices.reduce((sum, inv) => sum + inv.amountPaid, 0);
+  
+  const recoveryRate = totalAmount > 0 ? Math.round((totalPaid / totalAmount) * 100) : 0;
+
+  // Also get reminder count for the "Reminders Sent" metric
+  const reminderCount = await Notification.countDocuments({
+    userId,
+    createdAt,
+    type: 'payment_reminder',
   });
 
-  const totalReminded = remindedInvoiceIds.length;
-
-  if (totalReminded === 0) {
-    const result = {
-      responseRate:   0,
-      totalReminded:  0,
-      totalPaid:      0,
-      totalPartial:   0,
-      totalStillOpen: 0,
-      period:         dateFrom && dateTo ? 'custom' : period,
-    };
-    await setCache(userId, reportType, params, result, 120);
-    return result;
-  }
-
-  const [paidCount, partialCount] = await Promise.all([
-    Invoice.countDocuments({ _id: { $in: remindedInvoiceIds }, userId, status: 'paid' }),
-    Invoice.countDocuments({ _id: { $in: remindedInvoiceIds }, userId, status: 'partial' }),
-  ]);
-
   const result = {
-    responseRate:   Math.round((paidCount / totalReminded) * 100),
-    totalReminded,
-    totalPaid:      paidCount,
-    totalPartial:   partialCount,
-    totalStillOpen: totalReminded - paidCount - partialCount,
+    responseRate:   recoveryRate,
+    totalReminded:  reminderCount,
+    totalPaid:      allInvoices.filter(inv => inv.status === 'paid').length,
+    totalPartial:   allInvoices.filter(inv => inv.status === 'partial').length,
+    totalStillOpen: allInvoices.filter(inv => inv.status === 'pending').length,
+    totalAmount,
+    totalPaidAmount: totalPaid,
     period:         dateFrom && dateTo ? 'custom' : period,
   };
 
