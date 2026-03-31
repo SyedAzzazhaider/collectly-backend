@@ -5,7 +5,7 @@ const router     = express.Router();
 const rateLimit  = require('express-rate-limit');
 
 const authController                    = require('../controllers/auth.controller');
-const { protect, optionalAuth }         = require('../../../shared/middlewares/auth.middleware');
+const { protect, optionalAuth, restrictTo } = require('../../../shared/middlewares/auth.middleware');
 const { authLimiter }                   = require('../../../shared/middlewares/rateLimiter');
 const {
   validateSignup,
@@ -46,7 +46,6 @@ router.get('/sessions',    protect, authController.getSessions);
 
 router.post('/resend-verification', protect, authController.sendVerificationEmail);
 
-
 // ── Notification Preferences ──────────────────────────────────────────────
 /**
  * PATCH /api/v1/auth/notifications
@@ -61,7 +60,6 @@ router.patch('/notifications', protect, authController.updateNotifications);
  */
 router.post('/invite', protect, restrictTo('owner', 'admin'), authController.inviteUser);
 
-
 router.post('/2fa/setup', (req, res, next) => {
   req.skip2FAGate = true;
   next();
@@ -73,5 +71,3 @@ router.post('/2fa/disable', (req, res, next) => {
 }, protect, validateTwoFactor, authController.disable2FA);
 
 module.exports = router;
-
-
