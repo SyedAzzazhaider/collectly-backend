@@ -5,7 +5,7 @@ const router = express.Router();
 const { protect } = require('../../../shared/middlewares/auth.middleware');
 const paymentLinkController = require('../controllers/paymentLink.controller');
 
-// ✅ PUBLIC ROUTE (no auth required) - MUST be before protect middleware
+// ✅ PUBLIC ROUTE - MUST BE BEFORE protect middleware
 router.get('/links/public/:token', paymentLinkController.getPublicPaymentLink);
 
 // Protected routes (require authentication)
