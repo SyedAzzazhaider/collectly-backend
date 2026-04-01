@@ -339,27 +339,16 @@ const getReminderStats = async (userId, { period = '30d', dateFrom, dateTo } = {
 // ── Full agent dashboard ──────────────────────────────────────────────────────
 
 const getAgentDashboard = async (userId, params = {}) => {
-  const {
-    period   = '30d',
-    dateFrom,
-    dateTo,
-    page     = 1,
-    limit    = 20,
-    sortBy   = 'dueDate',
-  } = params;
-
-  if (!userId) throw new AppError('User ID is required', 400, 'MISSING_USER_ID');
-
-  const [overdueList, paymentHistory, priorityQueue, recoveryRate] = await Promise.all([
+  // ...
+  const [overdueList, paymentHistory, priorityQueue, recoveryRate, reminderStats] = await Promise.all([
     getOverdueList(userId,    { page: Number(page), limit: Number(limit), sortBy }),
     getPaymentHistory(userId, { period, dateFrom, dateTo, page: Number(page), limit: Number(limit) }),
     getPriorityQueue(userId,  { page: Number(page), limit: Number(limit) }),
     getRecoveryRate(userId,   { period, dateFrom, dateTo }),
+    getReminderStats(userId,  { period, dateFrom, dateTo }),
   ]);
 
-  logger.info(`Agent dashboard retrieved for user: ${userId}`);
-
-  return { overdueList, paymentHistory, priorityQueue, recoveryRate };
+  return { overdueList, paymentHistory, priorityQueue, recoveryRate, reminderStats };
 };
 
 module.exports = {
