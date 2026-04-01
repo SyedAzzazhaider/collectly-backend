@@ -170,10 +170,25 @@ const cancelPaymentLink = async (userId, linkId) => {
   return paymentLink;
 };
 
+
+// Add this function
+const getPaymentLinkById = async (linkId) => {
+  const paymentLink = await PaymentLink.findById(linkId)
+    .populate('invoiceId', 'invoiceNumber amount')
+    .populate('customerId', 'name email');
+  
+  if (!paymentLink) {
+    throw new AppError('Payment link not found', 404);
+  }
+  
+  return paymentLink;
+};
+
 module.exports = {
   createPaymentLink,
   getPaymentLinkByToken,
   getUserPaymentLinks,
   markPaymentLinkPaid,
   cancelPaymentLink,
+  getPaymentLinkById,  // ← ADD THIS
 };
