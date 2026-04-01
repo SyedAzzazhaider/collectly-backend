@@ -243,6 +243,8 @@ const getPriorityQueue = async (userId, { page = 1, limit = 20 } = {}) => {
 
 // ── Recovery rate ─────────────────────────────────────────────────────────────
 
+// ── Recovery rate from ALL invoices (not just overdue) ─────────────────────────
+
 const getRecoveryRate = async (userId, { period = '30d', dateFrom, dateTo } = {}) => {
   const params     = { period, dateFrom, dateTo };
   const reportType = 'agent_recovery_rate';
@@ -253,42 +255,86 @@ const getRecoveryRate = async (userId, { period = '30d', dateFrom, dateTo } = {}
     return cached;
   }
 
-  const dueDate = buildDateRange({ period, dateFrom, dateTo });
+  // Use createdAt date range instead of dueDate
+  const createdAt = buildDateRange({ period, dateFrom, dateTo });
 
-  const totalOverdue = await Invoice.countDocuments({
-    userId,
-    status:  { $in: ['overdue', 'paid', 'partial', 'cancelled'] },
-    dueDate,
-  });
-
-  if (totalOverdue === 0) {
-    const result = {
-      recoveryRate:   0,
-      totalOverdue:   0,
-      totalRecovered: 0,
-      totalPartial:   0,
-      period:         dateFrom && dateTo ? 'custom' : period,
-    };
-    await setCache(userId, reportType, params, result, 120);
-    return result;
-  }
-
-  const [recovered, partial] = await Promise.all([
-    Invoice.countDocuments({ userId, status: 'paid',    dueDate }),
-    Invoice.countDocuments({ userId, status: 'partial', dueDate }),
+  // Get ALL invoices in the date range (created during period)
+  const allInvoices = await Invoice.aggregate([
+    {
+      $match: {
+        userId: toObjId(userId),
+        createdAt: createdAt,
+      }
+    },
+    {
+      $group: {
+        _id: null,
+        totalAmount: { $sum: '$amount' },
+        totalPaid: { $sum: '$amountPaid' },
+        paidInvoices: { $sum: { $cond: [{ $eq: ['$status', 'paid'] }, 1, 0] } },
+        partialInvoices: { $sum: { $cond: [{ $eq: ['$status', 'partial'] }, 1, 0] } },
+        overdueInvoices: { $sum: { $cond: [{ $eq: ['$status', 'overdue'] }, 1, 0] } },
+      }
+    }
   ]);
 
+  const totals = allInvoices[0] || { totalAmount: 0, totalPaid: 0, paidInvoices: 0, partialInvoices: 0, overdueInvoices: 0 };
+  const recoveryRate = totals.totalAmount > 0 ? Math.round((totals.totalPaid / totals.totalAmount) * 100) : 0;
+
   const result = {
-    recoveryRate:   Math.round((recovered / totalOverdue) * 100),
-    totalOverdue,
-    totalRecovered: recovered,
-    totalPartial:   partial,
-    period:         dateFrom && dateTo ? 'custom' : period,
+    recoveryRate,
+    totalAmount: totals.totalAmount,
+    totalPaid: totals.totalPaid,
+    totalOverdue: totals.overdueInvoices,
+    totalRecovered: totals.paidInvoices,
+    totalPartial: totals.partialInvoices,
+    period: dateFrom && dateTo ? 'custom' : period,
   };
 
   await setCache(userId, reportType, params, result, 120);
   return result;
 };
+
+
+
+// ── Reminder stats ────────────────────────────────────────────────────────────
+
+const getReminderStats = async (userId, { period = '30d', dateFrom, dateTo } = {}) => {
+  const createdAt = buildDateRange({ period, dateFrom, dateTo });
+
+  const stats = await Notification.aggregate([
+    {
+      $match: {
+        userId: toObjId(userId),
+        createdAt: createdAt,
+        type: 'payment_reminder'
+      }
+    },
+    {
+      $group: {
+        _id: null,
+        total: { $sum: 1 },
+        sent: { $sum: { $cond: [{ $eq: ['$status', 'sent'] }, 1, 0] } },
+        delivered: { $sum: { $cond: [{ $eq: ['$status', 'delivered'] }, 1, 0] } },
+        failed: { $sum: { $cond: [{ $eq: ['$status', 'failed'] }, 1, 0] } },
+      }
+    }
+  ]);
+
+  const result = stats[0] || { total: 0, sent: 0, delivered: 0, failed: 0 };
+  
+  return {
+    totalSent: result.sent,
+    totalDelivered: result.delivered,
+    totalFailed: result.failed,
+    totalReminders: result.total,
+    period: dateFrom && dateTo ? 'custom' : period,
+  };
+};
+
+
+
+
 
 // ── Full agent dashboard ──────────────────────────────────────────────────────
 
