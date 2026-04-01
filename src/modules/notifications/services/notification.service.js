@@ -19,10 +19,10 @@ const createNotification = async (userId, data) => {
     scheduledAt = null, maxAttempts = 3, metadata = {},
   } = data;
 
-  // ✅ ADD DNC CHECK BEFORE CREATING NOTIFICATION
+  // DNC CHECK
   if (customerId) {
     const { allowed, reason } = await complianceService.isDeliveryAllowed(userId, customerId, channel);
-    
+
     if (!allowed) {
       logger.info(`Notification blocked: Customer ${customerId} - ${reason} for channel ${channel}`);
       throw new AppError(
@@ -51,6 +51,16 @@ const createNotification = async (userId, data) => {
   });
 
   logger.info(`Notification created: ${notification._id} channel=${channel} userId=${userId}`);
+
+  // ✅ MOVED THIS INSIDE THE FUNCTION - Increment remindersSent
+  if (invoiceId && type === 'payment_reminder') {
+    await Invoice.findByIdAndUpdate(invoiceId, {
+      $inc: { remindersSent: 1 },
+      $set: { lastReminderAt: new Date() }
+    });
+    logger.info(`Incremented remindersSent for invoice ${invoiceId}`);
+  }
+
   return notification;
 };
 
