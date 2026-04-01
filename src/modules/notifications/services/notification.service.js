@@ -52,7 +52,7 @@ const createNotification = async (userId, data) => {
 
   logger.info(`Notification created: ${notification._id} channel=${channel} userId=${userId}`);
 
-  // ✅ MOVED THIS INSIDE THE FUNCTION - Increment remindersSent
+  // Increment remindersSent (MOVED INSIDE FUNCTION)
   if (invoiceId && type === 'payment_reminder') {
     await Invoice.findByIdAndUpdate(invoiceId, {
       $inc: { remindersSent: 1 },
@@ -63,14 +63,6 @@ const createNotification = async (userId, data) => {
 
   return notification;
 };
-
-// After notification is created, if it's a reminder for an invoice
-if (invoiceId && type === 'payment_reminder') {
-  await Invoice.findByIdAndUpdate(invoiceId, {
-    $inc: { remindersSent: 1 },
-    $set: { lastReminderAt: new Date() }
-  });
-}
 
 // ── Get notifications for user ────────────────────────────────────────────────
 
