@@ -7,7 +7,11 @@ const paymentLinkSchema = new mongoose.Schema({
   token: { type: String, required: true, unique: true },
   amount: { type: Number, required: true },
   currency: { type: String, default: 'USD' },
-  status: { type: String, enum: ['active', 'paid', 'expired'], default: 'active' },
+  status: { 
+  type: String, 
+  enum: ['active', 'paid', 'expired', 'cancelled'], 
+  default: 'active' 
+},
   expiresAt: { type: Date, required: true }
 }, { timestamps: true });
 module.exports = mongoose.model('PaymentLink', paymentLinkSchema);
