@@ -199,9 +199,75 @@ const duplicateSequence = async (userId, sequenceId) => {
 
 // Assign sequence to invoice
 // BUG-10 FIX: Delegates to scheduler service for consistent phase/nextReminderAt initialization
+// ── Assign sequence to invoice ────────────────────────────────────────────────
+
 const assignSequenceToInvoice = async (userId, sequenceId, invoiceId) => {
-  const schedulerService = require('./scheduler.service');
-  return schedulerService.initializeSequenceOnInvoice(invoiceId, sequenceId, userId);
+  // Get the sequence
+  const sequence = await Sequence.findOne({ _id: sequenceId, userId });
+  if (!sequence) {
+    throw new AppError('Sequence not found.', 404, 'SEQUENCE_NOT_FOUND');
+  }
+
+  // Get the invoice
+  const invoice = await Invoice.findOne({ _id: invoiceId, userId });
+  if (!invoice) {
+    throw new AppError('Invoice not found.', 404, 'INVOICE_NOT_FOUND');
+  }
+
+  // Check if invoice is already paid
+  if (invoice.status === 'paid') {
+    throw new AppError('Cannot assign sequence to a paid invoice.', 400, 'INVOICE_ALREADY_PAID');
+  }
+
+  // Check if sequence is already assigned
+  if (invoice.sequenceId) {
+    throw new AppError('Invoice already has a sequence assigned.', 400, 'SEQUENCE_ALREADY_ASSIGNED');
+  }
+
+  // Get the first enabled phase (phaseNumber 1)
+  const firstPhase = sequence.phases
+    .filter(p => p.isEnabled !== false)
+    .sort((a, b) => a.phaseNumber - b.phaseNumber)[0];
+
+  if (!firstPhase) {
+    throw new AppError('Sequence has no enabled phases.', 400, 'SEQUENCE_NO_PHASES');
+  }
+
+  // Calculate next reminder date based on due date and first phase daysOffset
+  const dueDate = new Date(invoice.dueDate);
+  const nextReminderDate = new Date(dueDate);
+  const daysOffset = firstPhase.triggerRule?.daysOffset || 0;
+  nextReminderDate.setDate(dueDate.getDate() + daysOffset);
+
+  // ✅ FIX: Set currentPhase to 1 (not null or 0)
+  const updatedInvoice = await Invoice.findByIdAndUpdate(
+    invoiceId,
+    {
+      sequenceId: sequenceId,
+      sequenceAssignedAt: new Date(),
+      currentPhase: 1,           // ← ADD THIS - sets to phase 1
+      nextReminderAt: nextReminderDate,
+      sequencePaused: false,
+    },
+    { new: true, runValidators: true }
+  );
+
+  // Increment active invoice count on sequence
+  await Sequence.findByIdAndUpdate(sequenceId, {
+    $inc: { activeInvoiceCount: 1 },
+  });
+
+  logger.info(`Sequence ${sequenceId} assigned to invoice ${invoiceId} by user ${userId}`);
+
+  return {
+    invoice: updatedInvoice,
+    sequence: {
+      _id: sequence._id,
+      name: sequence.name,
+      currentPhase: 1,
+      nextReminderAt: nextReminderDate,
+    },
+  };
 };
 
 // ── Unassign sequence from invoice ────────────────────────────────────────────

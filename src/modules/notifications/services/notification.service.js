@@ -54,6 +54,14 @@ const createNotification = async (userId, data) => {
   return notification;
 };
 
+// After notification is created, if it's a reminder for an invoice
+if (invoiceId && type === 'payment_reminder') {
+  await Invoice.findByIdAndUpdate(invoiceId, {
+    $inc: { remindersSent: 1 },
+    $set: { lastReminderAt: new Date() }
+  });
+}
+
 // ── Get notifications for user ────────────────────────────────────────────────
 
 const getNotifications = async (userId, {
