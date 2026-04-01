@@ -1,6 +1,7 @@
 'use strict';
 
 const paymentLinkService = require('../services/paymentLink.service');
+const AppError = require('../../../shared/errors/AppError');
 
 const sendSuccess = (res, code, msg, data) => 
   res.status(code).json({ status: 'success', message: msg, data });
@@ -51,14 +52,19 @@ const createCheckoutSession = async (req, res, next) => {
     
     const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
     
+    // ✅ GET CUSTOMER EMAIL FROM PAYMENT LINK
+    const customerEmail = paymentLink.customerId?.email || paymentLink.customerEmail;
+    
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       payment_method_types: ['card'],
+      customer_email: customerEmail,  // ← ADD THIS - sends receipt to correct email
       line_items: [{
         price_data: {
           currency: paymentLink.currency.toLowerCase(),
           product_data: {
             name: `Invoice ${paymentLink.invoiceId?.invoiceNumber}`,
+            description: `Payment from ${paymentLink.customerId?.name || 'Customer'}`,
           },
           unit_amount: Math.round(amount * 100),
         },
@@ -68,11 +74,30 @@ const createCheckoutSession = async (req, res, next) => {
       cancel_url: `${process.env.FRONTEND_URL}/payment-cancel?token=${paymentLink.token}`,
       metadata: {
         paymentLinkId: paymentLink._id.toString(),
+        invoiceId: paymentLink.invoiceId?._id.toString(),
         token: paymentLink.token,
+        customerEmail: customerEmail,
       },
     });
     
     res.status(200).json({ status: 'success', data: { url: session.url } });
+  } catch (err) { next(err); }
+};
+const getInvoiceReceipt = async (req, res, next) => {
+  try {
+    const { sessionId } = req.params;
+    const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+    
+    const session = await stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ['line_items', 'payment_intent'],
+    });
+    
+    const invoiceUrl = session.payment_intent?.charges?.data[0]?.receipt_url;
+    
+    res.status(200).json({ 
+      status: 'success', 
+      data: { invoiceUrl, session } 
+    });
   } catch (err) { next(err); }
 };
 
@@ -81,5 +106,6 @@ module.exports = {
   getUserPaymentLinks,
   cancelPaymentLink,
   getPublicPaymentLink,
-  createCheckoutSession,  // ← ADD THIS
+  createCheckoutSession,
+  getInvoiceReceipt,  // ← ADD THIS
 };
