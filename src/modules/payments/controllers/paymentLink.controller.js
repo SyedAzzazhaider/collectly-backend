@@ -19,7 +19,6 @@ const getUserPaymentLinks = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// ✅ ADD THIS FUNCTION
 const cancelPaymentLink = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -28,8 +27,18 @@ const cancelPaymentLink = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// ✅ ADD THIS PUBLIC FUNCTION
+const getPublicPaymentLink = async (req, res, next) => {
+  try {
+    const { token } = req.params;
+    const paymentLink = await paymentLinkService.getPaymentLinkByToken(token);
+    sendSuccess(res, 200, 'Payment link retrieved', { paymentLink });
+  } catch (err) { next(err); }
+};
+
 module.exports = { 
   createPaymentLink, 
   getUserPaymentLinks, 
-  cancelPaymentLink  // ✅ ADD THIS
+  cancelPaymentLink,
+  getPublicPaymentLink  // ✅ ADD THIS
 };
