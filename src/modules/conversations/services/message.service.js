@@ -27,7 +27,7 @@ const sendMessage = async (userId, data) => {
     throw new AppError('Customer not found.', 404, 'CUSTOMER_NOT_FOUND');
   }
 
-  // ✅ ADD DNC CHECK BEFORE SENDING
+  // DNC CHECK
   const { allowed, reason } = await complianceService.isDeliveryAllowed(userId, customerId, channel);
   if (!allowed) {
     logger.info(`Message blocked: Customer ${customerId} - ${reason} for channel ${channel}`);
@@ -55,7 +55,7 @@ const sendMessage = async (userId, data) => {
   }
 
   // ─────────────────────────────────────────────────────────────────
-  // SEND VIA PROVIDER (Twilio)
+  // SEND VIA PROVIDER
   // ─────────────────────────────────────────────────────────────────
   let providerResult = null;
   let messageStatus = 'sent';
@@ -87,6 +87,39 @@ const sendMessage = async (userId, data) => {
       notes = notes ? `${notes}\nWhatsApp Error: ${providerResult.error}` : `WhatsApp Error: ${providerResult.error}`;
     } else {
       logger.info(`WhatsApp sent. SID: ${providerResult.messageId}`);
+    }
+  }
+
+  // ✅ ADD EMAIL SENDING
+  if (channel === 'email') {
+    if (!customer.email) {
+      throw new AppError('Customer has no email address.', 400, 'NO_EMAIL');
+    }
+    logger.info(`Sending email to ${customer.email}`);
+    
+    const emailService = require('../../notifications/services/email.service');
+    
+    const emailResult = await emailService.sendEmail({
+      to: customer.email,
+      toName: customer.name,
+      subject: subject || 'Message from Collectly',
+      body: body
+    });
+    
+    if (emailResult.success) {
+      logger.info(`Email sent. Message ID: ${emailResult.messageId}`);
+      providerResult = {
+        success: true,
+        messageId: emailResult.messageId
+      };
+    } else {
+      logger.error(`Email failed: ${emailResult.error}`);
+      providerResult = {
+        success: false,
+        error: emailResult.error
+      };
+      messageStatus = 'failed';
+      notes = notes ? `${notes}\nEmail Error: ${emailResult.error}` : `Email Error: ${emailResult.error}`;
     }
   }
 
