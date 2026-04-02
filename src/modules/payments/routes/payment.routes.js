@@ -11,7 +11,7 @@ router.post('/checkout', paymentLinkController.createCheckoutSession);  // ← A
 
 // Protected routes (require authentication)
 router.use(protect);
-
+router.patch('/links/:id', paymentLinkController.updatePaymentLink);
 router.post('/links', paymentLinkController.createPaymentLink);
 router.get('/links', paymentLinkController.getUserPaymentLinks);
 router.delete('/links/:id', paymentLinkController.cancelPaymentLink);

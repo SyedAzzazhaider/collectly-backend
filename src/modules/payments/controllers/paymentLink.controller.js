@@ -28,7 +28,6 @@ const cancelPaymentLink = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// ✅ ADD THIS PUBLIC FUNCTION
 const getPublicPaymentLink = async (req, res, next) => {
   try {
     const { token } = req.params;
@@ -37,9 +36,6 @@ const getPublicPaymentLink = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-
-
-// Add this function
 const createCheckoutSession = async (req, res, next) => {
   try {
     const { paymentLinkId, amount } = req.body;
@@ -51,14 +47,12 @@ const createCheckoutSession = async (req, res, next) => {
     }
     
     const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-    
-    // ✅ GET CUSTOMER EMAIL FROM PAYMENT LINK
     const customerEmail = paymentLink.customerId?.email || paymentLink.customerEmail;
     
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       payment_method_types: ['card'],
-      customer_email: customerEmail,  // ← ADD THIS - sends receipt to correct email
+      customer_email: customerEmail,
       line_items: [{
         price_data: {
           currency: paymentLink.currency.toLowerCase(),
@@ -83,6 +77,7 @@ const createCheckoutSession = async (req, res, next) => {
     res.status(200).json({ status: 'success', data: { url: session.url } });
   } catch (err) { next(err); }
 };
+
 const getInvoiceReceipt = async (req, res, next) => {
   try {
     const { sessionId } = req.params;
@@ -101,11 +96,23 @@ const getInvoiceReceipt = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// ✅ ADD THIS NEW FUNCTION - Update payment link status
+const updatePaymentLink = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { status, paymentIntentId } = req.body;
+    
+    const paymentLink = await paymentLinkService.updatePaymentLink(id, { status, paymentIntentId });
+    sendSuccess(res, 200, 'Payment link updated', { paymentLink });
+  } catch (err) { next(err); }
+};
+
 module.exports = {
   createPaymentLink,
   getUserPaymentLinks,
   cancelPaymentLink,
   getPublicPaymentLink,
   createCheckoutSession,
-  getInvoiceReceipt,  // ← ADD THIS
+  getInvoiceReceipt,
+  updatePaymentLink,  // ← ADD THIS
 };
