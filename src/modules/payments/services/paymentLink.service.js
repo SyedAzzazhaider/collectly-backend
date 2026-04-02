@@ -170,8 +170,9 @@ const cancelPaymentLink = async (userId, linkId) => {
   return paymentLink;
 };
 
-
-// Add this function
+/**
+ * Get payment link by ID
+ */
 const getPaymentLinkById = async (linkId) => {
   const paymentLink = await PaymentLink.findById(linkId)
     .populate('invoiceId', 'invoiceNumber amount')
@@ -184,11 +185,28 @@ const getPaymentLinkById = async (linkId) => {
   return paymentLink;
 };
 
+// ✅ ADD THIS FUNCTION - Update payment link
+const updatePaymentLink = async (linkId, updates) => {
+  const paymentLink = await PaymentLink.findByIdAndUpdate(
+    linkId,
+    { $set: updates },
+    { new: true, runValidators: true }
+  );
+  
+  if (!paymentLink) {
+    throw new AppError('Payment link not found', 404, 'PAYMENT_LINK_NOT_FOUND');
+  }
+  
+  logger.info(`Payment link updated: ${linkId} - Status: ${updates.status}`);
+  return paymentLink;
+};
+
 module.exports = {
   createPaymentLink,
   getPaymentLinkByToken,
   getUserPaymentLinks,
   markPaymentLinkPaid,
   cancelPaymentLink,
-  getPaymentLinkById,  // ← ADD THIS
+  getPaymentLinkById,
+  updatePaymentLink,  // ← ADD THIS
 };
