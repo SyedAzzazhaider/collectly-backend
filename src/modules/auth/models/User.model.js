@@ -154,14 +154,6 @@ userSchema.index({ passwordResetToken: 1 },  { sparse: true });
 userSchema.index({ emailVerifyToken: 1 },     { sparse: true });
 
 // ── TTL indexes — auto-expire stale tokens from DB ────────────────────────────
-userSchema.index(
-  { passwordResetExpires: 1 },
-  { expireAfterSeconds: 0, sparse: true }
-);
-userSchema.index(
-  { emailVerifyExpires: 1 },
-  { expireAfterSeconds: 0, sparse: true }
-);
 
 // ── Pre-save: hash password ───────────────────────────────────────────────────
 userSchema.pre('save', async function (next) {
