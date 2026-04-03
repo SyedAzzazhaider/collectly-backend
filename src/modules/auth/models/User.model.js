@@ -156,11 +156,25 @@ userSchema.index({ emailVerifyToken: 1 },     { sparse: true });
 // ── TTL indexes — auto-expire stale tokens from DB ────────────────────────────
 
 // ── Pre-save: hash password ───────────────────────────────────────────────────
+// ── Pre-save: hash password (PREVENTS DOUBLE HASHING) ────────────────────────
 userSchema.pre('save', async function (next) {
-  if (!this.isModified('password') || !this.password) return next();
-  if (this.password.startsWith('$2b$')) return next();  // ← Prevent double hash
-  this.password = await bcrypt.hash(this.password, SALT_ROUNDS);
-  next();
+  try {
+    // Only hash if password is modified AND password exists
+    if (!this.isModified('password') || !this.password) {
+      return next();
+    }
+    
+    // Check if already hashed (bcrypt hashes start with $2b$)
+    if (this.password.startsWith('$2b$')) {
+      return next();
+    }
+    
+    // Hash the password
+    this.password = await bcrypt.hash(this.password, SALT_ROUNDS);
+    return next();
+  } catch (error) {
+    return next(error);
+  }
 });
 
 // ── Instance methods ──────────────────────────────────────────────────────────
