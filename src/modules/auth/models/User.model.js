@@ -164,16 +164,9 @@ userSchema.index(
 );
 
 // ── Pre-save: hash password ───────────────────────────────────────────────────
-// ── Pre-save: hash password (PREVENTS DOUBLE HASHING) ────────────────────────
 userSchema.pre('save', async function (next) {
-  // Only hash if password is modified AND password exists
   if (!this.isModified('password') || !this.password) return next();
-  
-  // ✅ PREVENT DOUBLE HASHING - bcrypt hashes always start with $2b$
-  if (this.password.startsWith('$2b$')) {
-    return next();
-  }
-  
+  if (this.password.startsWith('$2b$')) return next();  // ← Prevent double hash
   this.password = await bcrypt.hash(this.password, SALT_ROUNDS);
   next();
 });

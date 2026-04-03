@@ -29,7 +29,7 @@ const attachRefreshCookie = (res, token) => {
   res.cookie('collectly_refresh', token, {
     httpOnly: true,
     secure:   process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
+    sameSite: 'none',
     maxAge:   COOKIE_MAX_AGE_MS,
     path:     '/api/v1/auth',           // SEC-03: restrict cookie to auth routes only
   });
