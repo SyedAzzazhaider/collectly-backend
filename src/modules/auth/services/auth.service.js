@@ -40,8 +40,8 @@ const clearRefreshCookie = (res) => {
   res.clearCookie('collectly_refresh', {
     httpOnly: true,
     secure:   process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
-    path:     '/api/v1/auth',           // SEC-03: must match attachRefreshCookie path
+    sameSite: 'none',
+    path:     '/api/v1/auth',
   });
 };
 
