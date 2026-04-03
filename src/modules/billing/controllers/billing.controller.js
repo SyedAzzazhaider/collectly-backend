@@ -40,7 +40,6 @@ const subscribe = async (req, res, next) => {
 };
 
 // ── CREATE STRIPE CHECKOUT SESSION ──────────────────────────────────────────
-// This is the correct endpoint for upgrading plans - opens Stripe checkout
 const createCheckout = async (req, res, next) => {
   try {
     const { plan } = req.body;
@@ -50,26 +49,24 @@ const createCheckout = async (req, res, next) => {
       throw new AppError('Plan is required', 400, 'PLAN_REQUIRED');
     }
     
-    // Map plan names to Stripe Price IDs
-    // You need to create these Price IDs in Stripe Dashboard
     const priceIds = {
-  starter: process.env.STRIPE_STARTER_PRICE_ID,
-  pro: process.env.STRIPE_PRO_PRICE_ID,
-  enterprise: process.env.STRIPE_ENTERPRISE_PRICE_ID
-};
+      starter: process.env.STRIPE_STARTER_PRICE_ID,
+      pro: process.env.STRIPE_PRO_PRICE_ID,
+      enterprise: process.env.STRIPE_ENTERPRISE_PRICE_ID
+    };
     
     const priceId = priceIds[plan.toLowerCase()];
     if (!priceId) {
       throw new AppError('Invalid plan selected', 400, 'INVALID_PLAN');
     }
     
-    // Initialize Stripe
     const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
     
-    // Create checkout session
+    // ✅ FIX: Add customer_email to use logged-in user's email
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       payment_method_types: ['card'],
+      customer_email: req.user.email,  // ← ADDED THIS LINE
       line_items: [
         {
           price: priceId,
@@ -85,7 +82,7 @@ const createCheckout = async (req, res, next) => {
       },
     });
     
-    logger.info(`Stripe checkout created: session=${session.id} userId=${userId} plan=${plan}`);
+    logger.info(`Stripe checkout created: session=${session.id} userId=${userId} plan=${plan} email=${req.user.email}`);
     
     sendSuccess(res, 200, 'Checkout session created', { url: session.url, sessionId: session.id });
   } catch (err) {
@@ -95,8 +92,6 @@ const createCheckout = async (req, res, next) => {
 };
 
 // ── CHANGE PLAN (Direct Update - For Admin Only) ────────────────────────────
-// WARNING: This bypasses payment. Should only be used for admin or free trials.
-// For normal users, use createCheckout above.
 const changePlan = async (req, res, next) => {
   try {
     const { plan } = req.body;
@@ -170,11 +165,9 @@ const stripeWebhook = async (req, res, next) => {
 
 const getAllBillingAdmin = async (req, res, next) => {
   try {
-    // Parse raw query values as integers explicitly
     const rawPage  = parseInt(req.query.page,  10);
     const rawLimit = parseInt(req.query.limit, 10);
 
-    // Validate explicitly provided values before applying defaults
     if (req.query.page !== undefined) {
       if (!Number.isInteger(rawPage) || rawPage < 1) {
         return next(new AppError('Invalid pagination parameters.', 400, 'INVALID_PAGINATION'));
@@ -200,8 +193,8 @@ module.exports = {
   getPlans,
   getBilling,
   subscribe,
-  createCheckout,  // ← ADD THIS
-  changePlan,      // Keep for admin use
+  createCheckout,
+  changePlan,
   cancelSubscription,
   reactivateSubscription,
   getUsage,
