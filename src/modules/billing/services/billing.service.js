@@ -451,101 +451,107 @@ const handleStripeWebhook = async (rawBody, signature) => {
 
        case 'checkout.session.completed': {
   const session = event.data.object;
-  const userId = session.metadata?.userId;
-  const plan = session.metadata?.plan;
-  
-  // Case 1: Regular subscription upgrade (from Billing page)
-  if (userId && plan) {
+  const { planId, installmentNumber, userId, plan } = session.metadata || {};
+
+  // ── Path A: Subscription plan upgrade ────────────────────────────────────
+  if (userId && plan && !planId) {
     try {
-      // Update User's subscription plan
-      await User.findByIdAndUpdate(userId, { subscriptionPlan: plan });
-      
-      // Update or create Billing record
-      let billing = await Billing.findOne({ userId });
+      const billing = await Billing.findOne({ userId })
+        .select('+stripeSubscriptionId +stripeCustomerId');
       if (!billing) {
-        billing = await initializeBilling(userId);
-        billing = await Billing.findOne({ userId });
+        logger.warn(`checkout.session.completed: no billing record for userId=${userId}`);
+        break;
       }
-      
-      billing.plan = plan;
-      billing.status = 'active';
-      billing.stripeCustomerId = session.customer;
-      billing.stripeSubscriptionId = session.subscription;
-      
+
       const planConfig = PLANS[plan];
-      if (planConfig) {
-        billing.amount = planConfig.price;
-        billing.currency = planConfig.currency;
+      if (!planConfig) {
+        logger.warn(`checkout.session.completed: unknown plan=${plan}`);
+        break;
       }
-      
-      if (session.subscription) {
-        const subscription = await stripe.subscriptions.retrieve(session.subscription);
-        billing.renewalDate = new Date(subscription.current_period_end * 1000);
-        billing.currentPeriodEnd = new Date(subscription.current_period_end * 1000);
-        billing.currentPeriodStart = new Date(subscription.current_period_start * 1000);
-      }
-      
-      await billing.save({ validateBeforeSave: false });
-      
-      logger.info(`✅ Webhook: User ${userId} upgraded to ${plan} plan via checkout`);
-    } catch (err) {
-      logger.error(`Webhook user update failed: ${err.message}`);
-    }
-    break;
-  }
-  
-  // Case 2: Payment plan installment (existing logic)
-  const { planId, installmentNumber } = session.metadata || {};
-  if (planId && installmentNumber) {
-    try {
-      const paymentPlan = await PaymentPlan.findOne({ _id: planId, userId });
-      if (!paymentPlan) break;
 
-      const instNum = parseInt(installmentNumber, 10);
-      const installment = paymentPlan.installments.find(
-        (i) => i.installmentNumber === instNum
+      // Retrieve the subscription from the completed session
+      let subscriptionId = session.subscription;
+      if (!subscriptionId && billing.stripeSubscriptionId) {
+        subscriptionId = billing.stripeSubscriptionId;
+      }
+
+      const now         = new Date();
+      const renewalDate = subscriptionId
+        ? new Date((await stripe.subscriptions.retrieve(subscriptionId)).current_period_end * 1000)
+        : new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
+
+      const { periodStart, periodEnd } = buildPeriodDates();
+
+      await Billing.findOneAndUpdate(
+        { userId },
+        {
+          plan:                 plan,
+          status:               'active',
+          amount:               planConfig.price,
+          currency:             planConfig.currency,
+          renewalDate,
+          currentPeriodEnd:     renewalDate,
+          currentPeriodStart:   now,
+          cancelAtPeriodEnd:    false,
+          stripeSubscriptionId: subscriptionId || billing.stripeSubscriptionId,
+          usage: {
+            creditsUsed: 0, emailsSent: 0, smsSent: 0, whatsappSent: 0,
+            periodStart, periodEnd,
+          },
+        },
+        { new: true }
       );
-      if (!installment || installment.status === 'paid') break;
 
-      installment.status = 'paid';
-      installment.paidAt = new Date();
-      installment.paidAmount = installment.amount;
-
-      const allPaid = paymentPlan.installments.every((i) => i.status === 'paid');
-      if (allPaid) {
-        paymentPlan.status = 'completed';
-        paymentPlan.completedAt = new Date();
-      }
-
-      await paymentPlan.save({ validateBeforeSave: false });
-
-      const totalPaid = paymentPlan.installments
-        .filter((i) => i.status === 'paid')
-        .reduce((sum, i) => sum + i.amount, 0);
-
-      const invoice = await Invoice.findById(paymentPlan.invoiceId);
-      if (invoice) {
-        invoice.amountPaid = Math.min(totalPaid, invoice.amount);
-        if (invoice.amountPaid >= invoice.amount) {
-          invoice.status = 'paid';
-          invoice.paidAt = new Date();
-        } else {
-          invoice.status = 'partial';
-        }
-        await invoice.save({ validateBeforeSave: false });
-      }
-
-      logger.info(`Webhook: Payment plan installment ${instNum} paid for plan ${planId}`);
+      await User.findByIdAndUpdate(userId, { subscriptionPlan: plan });
+      logger.info(`Plan upgraded via checkout: userId=${userId} plan=${plan}`);
+      break;
     } catch (err) {
-      logger.error(`Payment plan webhook error: ${err.message}`);
+      logger.error(`checkout.session.completed plan upgrade error: ${err.message}`);
+      break;
     }
+  }
+
+  // ── Path B: Payment plan installment (original logic) ────────────────────
+  if (!planId || !installmentNumber || !userId) break;
+
+  try {
+    const plan = await PaymentPlan.findOne({ _id: planId, userId });
+    if (!plan) break;
+
+    const instNum     = parseInt(installmentNumber, 10);
+    const installment = plan.installments.find((i) => i.installmentNumber === instNum);
+    if (!installment || installment.status === 'paid') break;
+
+    installment.status     = 'paid';
+    installment.paidAt     = new Date();
+    installment.paidAmount = installment.amount;
+
+    const allPaid = plan.installments.every((i) => i.status === 'paid');
+    if (allPaid) { plan.status = 'completed'; plan.completedAt = new Date(); }
+
+    await plan.save({ validateBeforeSave: false });
+
+    const totalPaid = plan.installments
+      .filter((i) => i.status === 'paid')
+      .reduce((sum, i) => sum + i.amount, 0);
+
+    const invoice = await Invoice.findById(plan.invoiceId);
+    if (invoice) {
+      invoice.amountPaid = Math.min(totalPaid, invoice.amount);
+      invoice.status     = invoice.amountPaid >= invoice.amount ? 'paid' : 'partial';
+      if (invoice.status === 'paid') invoice.paidAt = new Date();
+      await invoice.save({ validateBeforeSave: false });
+    }
+
+    logger.info(`Stripe payment link paid: planId=${planId} installment=${instNum}`);
+  } catch (err) {
+    logger.error(`checkout.session.completed installment error: ${err.message}`);
   }
   break;
 }
 
     case 'invoice.payment_succeeded': {
   const invoice = event.data.object;
-
   if (!invoice.subscription) {
     logger.info('invoice.payment_succeeded — no subscription attached, skipping');
     break;
@@ -553,14 +559,8 @@ const handleStripeWebhook = async (rawBody, signature) => {
 
   const subscription = await stripe.subscriptions.retrieve(invoice.subscription);
   const userId = subscription.metadata?.userId;
-  const plan = subscription.metadata?.plan;
-  
+  const planFromMeta = subscription.metadata?.plan;
   if (!userId) break;
-
-  // ✅ Update user's plan
-  if (plan) {
-    await User.findByIdAndUpdate(userId, { subscriptionPlan: plan });
-  }
 
   const billing = await Billing.findOne({ userId }).select('+invoiceHistory');
   if (!billing) break;
@@ -569,9 +569,13 @@ const handleStripeWebhook = async (rawBody, signature) => {
   billing.renewalDate = new Date(subscription.current_period_end * 1000);
   billing.currentPeriodEnd = new Date(subscription.current_period_end * 1000);
   billing.currentPeriodStart = new Date(subscription.current_period_start * 1000);
-  
-  if (plan) {
-    billing.plan = plan;
+
+  // ✅ Sync plan if metadata carries it and it differs from current
+  if (planFromMeta && PLANS[planFromMeta] && billing.plan !== planFromMeta) {
+    billing.plan = planFromMeta;
+    billing.amount = PLANS[planFromMeta].price;
+    await User.findByIdAndUpdate(userId, { subscriptionPlan: planFromMeta });
+    logger.info(`Plan synced on invoice.payment_succeeded: userId=${userId} plan=${planFromMeta}`);
   }
 
   const { periodStart, periodEnd } = buildPeriodDates();
@@ -591,7 +595,7 @@ const handleStripeWebhook = async (rawBody, signature) => {
   });
 
   await billing.save({ validateBeforeSave: false });
-  logger.info(`Payment succeeded — billing renewed for user: ${userId} plan: ${plan || billing.plan}`);
+  logger.info(`Payment succeeded — billing renewed for user: ${userId}`);
   break;
 }
 
@@ -619,18 +623,30 @@ const handleStripeWebhook = async (rawBody, signature) => {
     }
 
     case 'customer.subscription.updated': {
-      const subscription = event.data.object;
-      const userId       = subscription.metadata?.userId;
-      if (!userId) break;
-      const billing = await Billing.findOne({ userId });
-      if (!billing) break;
-      billing.status            = subscription.status;
-      billing.cancelAtPeriodEnd = subscription.cancel_at_period_end;
-      billing.renewalDate       = new Date(subscription.current_period_end * 1000);
-      await billing.save({ validateBeforeSave: false });
-      logger.info(`Subscription updated for user: ${userId}`);
-      break;
-    }
+  const subscription = event.data.object;
+  const userId       = subscription.metadata?.userId;
+  const newPlan      = subscription.metadata?.plan;
+  if (!userId) break;
+
+  const billing = await Billing.findOne({ userId });
+  if (!billing) break;
+
+  billing.status            = subscription.status;
+  billing.cancelAtPeriodEnd = subscription.cancel_at_period_end;
+  billing.renewalDate       = new Date(subscription.current_period_end * 1000);
+  billing.currentPeriodEnd  = new Date(subscription.current_period_end * 1000);
+
+  // Sync plan name if metadata carries it
+  if (newPlan && PLANS[newPlan]) {
+    billing.plan   = newPlan;
+    billing.amount = PLANS[newPlan].price;
+    await User.findByIdAndUpdate(userId, { subscriptionPlan: newPlan });
+  }
+
+  await billing.save({ validateBeforeSave: false });
+  logger.info(`Subscription updated for user: ${userId}${newPlan ? ` plan=${newPlan}` : ''}`);
+  break;
+}
 
     default:
       logger.info(`Unhandled Stripe webhook event: ${event.type}`);
